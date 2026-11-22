@@ -175,18 +175,24 @@ the sound), exactly as if the user did it: it appears in the page's history and 
 there. Your consecutive edits are one entry of that history, your turn, which one undo undoes \
 whole; the turn ends when the user or another agent edits, after an undo or a redo, and after \
 30 s without an edit of yours. A history group you open with `history_begin_group` blocks undo \
-for everyone until you end it with `history_end_group`; the page closes it for you when you \
+for everyone until you end it with `history_end_group` (or take its edits back with \
+`history_abort_group`); the page closes it for you when you \
 leave (your MCP session ends, or 5 minutes pass without a request of yours) and when the page \
 loses its link to this helper. A destructive tool (annotation `destructiveHint`: it cannot be \
 undone) and the tools that replace the open project, delete a project kept in the browser or \
 settle a conflict with the project's folder (`project_open_recent`, \
 `project_open_browser_project`, `project_reopen_last`, `project_open_url`, \
-`project_delete_browser_project`, `project_keep_mine`, `project_load_folder_version`) wait for \
+`project_delete_browser_project`, `project_keep_mine`, `project_load_folder_version`), and \
+`clip_import_audio_url` (an audio file the page downloads from a link), wait for \
 the user to allow them in the page, for up to 45 s, then answer once the page did the action \
 (a slow one, such as a large download, can still end in `page.timeout` although it ran: check \
-with `project_list_stored` or the project before calling again). When the user refuses, or does \
+with `project_list_stored`, `track_get` for an audio file from a link, or the project before \
+calling again). When the user refuses, or does \
 not answer in time, the call answers `command.refused` with the error code \
-`confirmation.declined` or `confirmation.timeout`, and nothing changed. Without a paired page open every tool answers the error \
+`confirmation.declined` or `confirmation.timeout`, and nothing changed. An audio file on this \
+computer is imported with `clip_import_audio_file` once it is in the project's folder (its path \
+relative to that folder), in Boost mode with the folder shown to this helper: the helper reads \
+it there, never elsewhere. Without a paired page open every tool answers the error \
 `page.absent`: ask the user to open Faulk in the browser.";
 
 /// The MCP handler of one MCP session, or of one stateless request: lists the tools, relays
@@ -340,6 +346,29 @@ fn refusal(status: StatusCode) -> Response<Body> {
     response
 }
 
+/// How much of a refused request's body is read before answering, and for how long (#815).
+const DRAIN_LIMIT: usize = 1 << 20;
+const DRAIN_TIME: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// Reads the body of a request that is about to be refused. Answering and closing before the
+/// client has sent its body makes the close a reset, and on Windows a reset throws away the
+/// answer the client has not read yet ("connection aborted", os error 10053): the stdio bridge
+/// then told the agent that the helper was not running instead of that its token was wrong
+/// (#815). A body that is too long or too slow is left unread: that client gets the reset.
+async fn drain(mut body: Incoming) {
+    use http_body_util::BodyExt;
+    let read = async {
+        let mut read = 0usize;
+        while let Some(Ok(frame)) = body.frame().await {
+            read += frame.data_ref().map_or(0, Bytes::len);
+            if read > DRAIN_LIMIT {
+                break;
+            }
+        }
+    };
+    let _ = tokio::time::timeout(DRAIN_TIME, read).await;
+}
+
 /// Serves one HTTP connection to the MCP server: each request is checked, then given to it.
 pub async fn serve_connection(stream: TcpStream, shared: Arc<Shared>, mcp: &McpHttp) {
     let mcp = mcp.0.clone();
@@ -357,9 +386,13 @@ pub async fn serve_connection(stream: TcpStream, shared: Arc<Shared>, mcp: &McpH
         async move {
             match check {
                 Ok(()) if on_path => mcp.call(request).await,
-                Ok(()) => Ok(refusal(StatusCode::NOT_FOUND)),
+                Ok(()) => {
+                    drain(request.into_body()).await;
+                    Ok(refusal(StatusCode::NOT_FOUND))
+                }
                 Err(why) => {
                     crate::log!("refused an MCP request: {why:?}");
+                    drain(request.into_body()).await;
                     let status = match why {
                         McpRefusal::BadToken | McpRefusal::NoToken => StatusCode::UNAUTHORIZED,
                         McpRefusal::BadHost | McpRefusal::Origin => StatusCode::FORBIDDEN,
@@ -424,6 +457,35 @@ mod tests {
             "the command's own name is no tool"
         );
         assert_eq!(command_of("nope"), None);
+    }
+
+    #[test]
+    fn every_tool_the_instructions_name_exists() {
+        // The tools named in backticks (`project_open_url`, `clip_import_audio_url`…) are real
+        // tools: a renamed command would leave the instructions naming a tool that is gone.
+        let tools: Vec<String> = commands::catalog()
+            .into_iter()
+            .map(|spec| tool_name(&spec.name))
+            .collect();
+        let named: Vec<&str> = INSTRUCTIONS
+            .split('`')
+            .skip(1)
+            .step_by(2)
+            .filter(|word| {
+                word.contains('_')
+                    && word.chars().all(|c| c.is_ascii_lowercase() || c == '_')
+                    && !word.contains("confirmation")
+            })
+            .collect();
+        assert!(named.contains(&"clip_import_audio_url"), "{named:?}");
+        assert!(named.contains(&"clip_import_audio_file"), "{named:?}");
+        assert!(named.contains(&"project_open_url"), "{named:?}");
+        for word in named {
+            assert!(
+                tools.iter().any(|t| t == word),
+                "`{word}` is named but no tool"
+            );
+        }
     }
 
     #[test]

@@ -19,11 +19,11 @@
     resizePlacement,
     splitPlacement,
   } from '../../lib/arrangement-commands'
-  import { addPoints, createLane, createMasterLane, deleteLane, removePoints, updatePoints } from '../../lib/automation-commands'
+  import { addPoints, createLane, createMasterLane, deleteLane, removePoints, restorePoints, updatePoints } from '../../lib/automation-commands'
   import type { Command, Shape } from '../../lib/generated/protocol'
   import { keepsBrowserMenu, type MenuItem } from '../../lib/context-menu'
   import { DRAG_SLOP_PX, fineKey } from '../../lib/continuous'
-  import { chordText } from '../../lib/shortcuts'
+  import { chordText, positionKey, withShortcut } from '../../lib/shortcuts'
   import TimeGrid from '../../lib/components/timegrid/TimeGrid.svelte'
   import ValueField from '../../lib/components/ValueField.svelte'
   import GestureLabel from '../../lib/components/GestureLabel.svelte'
@@ -45,27 +45,45 @@
     type View,
   } from '../../lib/components/timegrid/grid'
   import { RULER_HEIGHT, type BodyFrame } from '../../lib/components/timegrid/render'
-  import { arrangementShortcut, isTextTarget, repeatShortcut } from '../../lib/keyboard'
-  import { MASTER_COLOR, isMidi, trackColor, trackLabel, type DragHooks } from '../../lib/project/tracks'
+  import { arrangementShortcut, isTextTarget, lengthenShortcut, repeatShortcut } from '../../lib/keyboard'
+  import { ARRANGEMENT_GESTURES } from '../../lib/palette-gestures'
+  import { MASTER_COLOR, MIN_GAIN_DB, isMidi, trackColor, trackLabel, type DragHooks } from '../../lib/project/tracks'
   import { offTimeline } from '../../lib/off-timeline'
   import { backTrackToArrangement } from '../../lib/scene-commands'
   import { useStores } from '../../lib/stores'
   import { MASTER } from '../../lib/stores/automated.svelte'
   import { MASTER_METER } from '../../lib/stores'
-  import { inGroup as inHistoryGroup } from '../../lib/history-group'
+  import { inGroup as inHistoryGroup, runAll } from '../../lib/history-group'
   import { moveTrack, selectTrack } from '../../lib/track-commands'
   import LevelMeter from '../../lib/components/LevelMeter.svelte'
   import { seek, setLoopRegion, toggleLoop } from '../../lib/transport-commands'
   import { liveTick, settle } from '../piano-roll/playhead'
+  import { parseSnap } from '../piano-roll/roll'
   import { MAX_GOTO_BAR, PPQ, barTicks, beatTicks } from '../transport/time'
-  import { itemAt, moveCursor, rovingKey, step as stepItem, timelineCursorStep, zoomKey, type Cursor, type Direction, type RovingKey } from '../../lib/roving'
-  import { CLIP_DRAG_TYPE, clipTrackType, placeCommand, poolOf } from '../../lib/clip-pool'
-  import { addMarker, deleteMarker, moveMarker, renameMarker } from '../../lib/arrangement-commands'
+  import {
+    cursorJumpKey,
+    itemAt,
+    moveCursor,
+    rovingKey,
+    step as stepItem,
+    timelineCursorStep,
+    zoomKey,
+    type Cursor,
+    type Direction,
+    type RovingKey,
+  } from '../../lib/roving'
+  import { CLIP_DRAG_TYPE, clipTrackType, newClipAt, placeCommand, poolOf } from '../../lib/clip-pool'
+  import { addMarker, deleteMarker, moveKeyChange, moveMarker, removeKeyChange, renameMarker, setKeyChange } from '../../lib/arrangement-commands'
+  import { keyOwner, kindOf, scaleName, scaleShort } from '../../lib/scale'
   import {
     blocksOf,
     clampScrollY,
     maxScrollY,
+    copyBlocked,
     copyShift,
+    landingOn,
+    repeatCovers,
+    freeRows,
     hitBlock,
     isFree,
     lastEnd,
@@ -74,6 +92,7 @@
     clampRows,
     trackTargets,
     passCount,
+    followsPlacement,
     markerJump,
     openingView,
     wholeSongView,
@@ -87,6 +106,7 @@
     drawnSpan,
     rowAt,
     splittable,
+    MAX_TICK,
     type Block,
   } from './arrangement'
   import { drawArrangement } from './draw'
@@ -112,7 +132,36 @@
   import { createsTrack } from '../../lib/browser/drop'
   import { putItem } from '../../lib/browser/put'
   import BarDialog from './BarDialog.svelte'
-  import { lanesOf, optionsOf, pointAtTick, pointsOf, targetKey, valueAt, type LaneInfo, type LanePoint, type Labels } from './automation/model'
+  import RampDialog from './automation/RampDialog.svelte'
+  import {
+    CURVE_CODE,
+    POINT_CODE,
+    RAMP_CODE,
+    entryIndex,
+    goIndex,
+    laneKey,
+    nextShape,
+    nudgedTick,
+    pointKey,
+    rampPlan,
+    shapeAt,
+    stepValue,
+  } from './automation/keys'
+  import { SHAPE_NAMES } from './automation/shapes'
+  import {
+    lanesOf,
+    lowerBound,
+    optionsOf,
+    pointAtTick,
+    SHAPES,
+    pointsOf,
+    targetKey,
+    valueAt,
+    type AxisEntry,
+    type LaneInfo,
+    type LanePoint,
+    type Labels,
+  } from './automation/model'
 
   const stores = useStores()
   const { project, engine, ui, dispatcher, meters, peaks } = stores
@@ -233,11 +282,18 @@
       .flatMap(([id, m]) => (m ? [{ id, tick: m.tick, name: m.name }] : []))
       .sort((a, b) => a.tick - b.tick || (a.id < b.id ? -1 : 1)),
   )
-  /** Where the song ends: its last clip, automation point or marker. */
-  const songEnd = $derived(Math.max(lastEnd(blocks), lastPoint, markers.at(-1)?.tick ?? 0))
+  /** The key changes (#953), in timeline order, each with its short key name ("Dm", "F"). */
+  const keyChanges = $derived(
+    (project.view?.project.key_changes ?? []).map((c) => ({ tick: c.tick, scale: c.scale ?? null, name: scaleShort(c.scale ?? null, t) })),
+  )
+  /** Where the song ends: its last clip, automation point, marker or key change. */
+  const songEnd = $derived(Math.max(lastEnd(blocks), lastPoint, markers.at(-1)?.tick ?? 0, keyChanges.at(-1)?.tick ?? 0))
 
   // View state.
-  let snap = $state<SnapSetting>('auto')
+  // The snap is kept for the session across every view change (#925): the view is built again when another view is shown,
+  // so it is recalled (the piano roll does the same, #835). It comes back with the project's layout, "Auto" for a new one.
+  let snap = $state<SnapSetting>(untrack(() => parseSnap(ui.recall<string>('arrangement-snap'))))
+  $effect(() => ui.remember('arrangement-snap', snap, layoutRev))
   // Zoom, scroll and the open lanes come back as the view was left (it is torn down when another view is shown),
   // and with the project's layout when it is opened again (#473).
   const layoutRev = ui.layoutRev
@@ -281,8 +337,27 @@
   let autoPick = $state.raw<{ lane: string; ticks: ReadonlySet<number> } | null>(null)
   /** The point under the pointer, for its readout. */
   let hover = $state.raw<{ lane: string; tick: number } | null>(null)
-  /** The point whose value is being typed. */
-  let editing = $state.raw<{ lane: string; tick: number; x: number; y: number } | null>(null)
+  /**
+   * The point whose value is being typed. `fresh`: no point yet, Enter adds one there (a point at the playhead, a double click on an
+   * empty part, #769) with `initial` as the text. `back`: what takes the keyboard back when the field closes by a key (the lane's
+   * head or point it was opened from); absent, the grid takes it.
+   */
+  let editing = $state.raw<{
+    lane: string
+    tick: number
+    x: number
+    y: number
+    fresh?: boolean
+    initial?: string
+    exact?: number
+    back?: HTMLElement | null
+  } | null>(null)
+  /** The point added or changed by the field that just closed: it takes the keyboard when the field was opened from the keyboard. */
+  let editedTick: number | null = null
+  /** The lane whose "Ramp to…" dialog is open, with what opened it (the focus goes back there). */
+  let ramping = $state.raw<{ lane: string; back: HTMLElement | null; head: number; from: number } | null>(null)
+  /** The point of a lane that holds the keyboard (a cell of the grid, #769). */
+  let focusPoint = $state.raw<{ lane: string; tick: number } | null>(null)
   let editAnchor: HTMLDivElement | undefined = $state()
 
   const labels = $derived<Labels>({
@@ -351,6 +426,11 @@
   const y0 = $derived(clampScrollY(scrollY, layout.total, stageH))
   // The selection is kept to the placements the project still has (an undo, an agent).
   const selection = $derived(blocks.filter((b) => picked.has(b.id)))
+  // What the command palette fills its forms with (#926): the clips selected here.
+  $effect(() => {
+    ui.pickedPlacements = selection.map((b) => ({ id: b.id, clip: b.clip }))
+    return () => (ui.pickedPlacements = [])
+  })
   const selectedIds = $derived(new Set(selection.map((b) => b.id)))
   /** The selected points, kept to the points the lane still has, earliest first. */
   const autoSel = $derived.by(() => {
@@ -687,6 +767,85 @@
       run(deleteMarker(marker.id))
     }
   }
+  // --- the key changes (#953) ----------------------------------------------------------------------
+  type KeyChangeView = (typeof keyChanges)[number]
+  /** The key change being dragged on the ruler: where it started and the pointer's start and offset in pixels. */
+  let keyDrag = $state<{ tick: number; startX: number; dx: number } | null>(null)
+  const barOf = (tick: number) => Math.floor(tick / bar) + 1
+  /** A key change at the bar the playhead is in, in the key in force there (the ruler's menu and the palette). */
+  function addKeyChangeHere() {
+    const at = Math.floor(headTick() / bar) * bar
+    if (at < bar) return announce(t('scale.keyChange.saidFirstBar'))
+    if (keyChanges.some((c) => c.tick === at)) return announce(t('scale.keyChange.saidThere'))
+    const key = kindOf(keyOwner(project.view?.project, at).scale)
+    run(setKeyChange(at, key.root, key.mode))
+    announce(t('scale.keyChange.saidAdded', { bar: barOf(at) }))
+  }
+  function goToKeyChange(change: KeyChangeView) {
+    jumpedTo = null
+    run(seek(change.tick))
+  }
+  /** Moves a key change to another bar start; refused (said) at the first bar or onto another change. */
+  function moveKey(change: KeyChangeView, to: number) {
+    if (to === change.tick) return
+    if (to < bar || keyChanges.some((c) => c.tick === to)) return announce(t('scale.keyChange.saidCannotMove'))
+    run(moveKeyChange(change.tick, to))
+    const [from, end] = visibleRange(shown, stageW)
+    if (stageW > 0 && (to < from || to > end)) {
+      follow = false
+      view = clampView({ pxPerTick: shown.pxPerTick, scrollTick: to - (stageW / shown.pxPerTick) * PAGE_LEAD }, stageW, totalTicks)
+    }
+    announce(t('scale.keyChange.saidMoved', { bar: barOf(to) }))
+  }
+  function removeKey(change: KeyChangeView) {
+    run(removeKeyChange(change.tick))
+    announce(t('scale.keyChange.saidRemoved'))
+  }
+  function onKeyChangeContext(event: MouseEvent, change: KeyChangeView) {
+    ui.openMenu(
+      event,
+      [
+        { id: 'key-jump', label: t('scale.keyChange.jump'), run: () => goToKeyChange(change) },
+        {
+          id: 'key-earlier',
+          label: t('scale.keyChange.earlier'),
+          shortcut: chordText(['Alt', '←']),
+          separator: true,
+          run: () => moveKey(change, change.tick - bar),
+        },
+        { id: 'key-later', label: t('scale.keyChange.later'), shortcut: chordText(['Alt', '→']), run: () => moveKey(change, change.tick + bar) },
+        { id: 'key-delete', label: t('scale.keyChange.delete'), shortcut: chordText(['Delete']), separator: true, run: () => removeKey(change) },
+      ],
+      t('scale.keyChange.menu', { name: change.name }),
+    )
+  }
+  function onKeyChangeKey(event: KeyboardEvent, change: KeyChangeView) {
+    if (event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
+      event.preventDefault()
+      event.stopPropagation()
+      moveKey(change, change.tick + (event.key === 'ArrowLeft' ? -bar : bar))
+    } else if (event.key === 'Delete' || event.key === 'Backspace') {
+      event.preventDefault()
+      removeKey(change)
+    }
+  }
+  function onKeyChangeDown(event: PointerEvent, change: KeyChangeView) {
+    event.stopPropagation()
+    if (event.button !== 0) return
+    ;(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId)
+    keyDrag = { tick: change.tick, startX: event.clientX, dx: 0 }
+  }
+  function onKeyChangeMove(event: PointerEvent) {
+    if (keyDrag) keyDrag = { ...keyDrag, dx: event.clientX - keyDrag.startX }
+  }
+  /** A press that moved under 4 px is a click (the playhead goes there); a longer one drops the change on the nearest bar. */
+  function onKeyChangeUp(_event: PointerEvent, change: KeyChangeView) {
+    const drag = keyDrag
+    keyDrag = null
+    if (!drag || drag.tick !== change.tick) return
+    if (Math.abs(drag.dx) < 4) return goToKeyChange(change)
+    moveKey(change, Math.max(0, Math.round((change.tick + drag.dx / shown.pxPerTick) / bar)) * bar)
+  }
   // Alt+K, Alt+Page Up/Down and Alt+Z, wherever the focus is in the page (the arrangement is shown).
   onMount(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -698,11 +857,18 @@
         if (!modal && !event.repeat && !isTextTarget(event.target)) openRepeat()
         return
       }
+      // Ctrl+Shift+L (#915): the same, for "Lengthen to".
+      if (lengthenShortcut(event)) {
+        event.preventDefault()
+        if (!modal && !event.repeat && !isTextTarget(event.target)) openLengthen()
+        return
+      }
       if (modal) return
       const action = arrangementShortcut(event)
       if (!action) return
       event.preventDefault()
-      if (action === 'addMarker') addMarkerHere()
+      if (action === 'newClip') newClipAtHead()
+      else if (action === 'addMarker') addMarkerHere()
       else if (action === 'prevMarker') jumpMarker(-1)
       else if (action === 'nextMarker') jumpMarker(1)
       else fitSong()
@@ -710,6 +876,28 @@
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   })
+  // What the command palette asked for (#926): the same functions as the keys above, on the selection as it is. A request the view
+  // cannot satisfy (no clip selected, no lane) is said by the function itself, as for the key.
+  $effect(() => {
+    const id = ui.takeGesture(ARRANGEMENT_GESTURES)
+    if (!id) return
+    untrack(() => {
+      if (id === 'fitSong') fitSong()
+      else if (id === 'clipNew') newClipAtHead()
+      else if (id === 'clipRepeat') openRepeat()
+      else if (id === 'clipLengthen') openLengthen()
+      else if (id === 'markerAdd') addMarkerHere()
+      else if (id === 'laneRamp') rampFromPalette()
+    })
+  })
+  /** "Ramp to…" asked from the palette: the lane that has the focus, else the only lane there is. */
+  function rampFromPalette() {
+    const focused = (document.activeElement as HTMLElement | null)?.closest<HTMLElement>('[data-lane]')
+    const lanes = [...laneRefs.keys()]
+    const lane = focused?.dataset.lane ?? (lanes.length === 1 ? lanes[0] : undefined)
+    if (!lane) return announce(t('automation.saidRampLane'))
+    openRamp(lane, focused ?? null)
+  }
   const canZoomIn = $derived(zoomAt(shown, ZOOM_STEP, stageW / 2, stageW, totalTicks).pxPerTick > shown.pxPerTick)
   const canZoomOut = $derived(zoomAt(shown, 1 / ZOOM_STEP, stageW / 2, stageW, totalTicks).pxPerTick < shown.pxPerTick)
 
@@ -776,6 +964,7 @@
       fallbackName: t('arrangement.clipDefault'),
       silent,
       markers,
+      keyChanges,
       handles: handlesNow,
       peaksOf: (media) => peaks.of(media).peaks,
     })
@@ -789,6 +978,7 @@
       lanes.push({
         ...geoOf(row),
         axis: ref.info.axis,
+        target: ref.info.lane.target,
         points,
         selected: preview ? preview.selected : autoPick?.lane === row.lane ? autoPick.ticks : NO_TICKS,
         color: ref.color,
@@ -843,12 +1033,12 @@
   /** The step of this event: Ctrl (Cmd on a Mac) puts the snap aside while it is held. */
   const stepOf = (event: Pick<MouseEvent, 'ctrlKey' | 'metaKey'>) => (fineKey(event) ? null : step)
 
-  /** Runs several commands as one history entry. */
+  /**
+   * Runs several commands as one history entry, all or nothing (#867): the first one the core refuses (its own message
+   * shows) stops the batch and takes back what was applied, so a multi-clip action never changes only part of the selection.
+   */
   function inGroup(commands: Command[]) {
-    if (commands.length === 1) return run(commands[0]!)
-    group(() => {
-      for (const command of commands) run(command)
-    })
+    return runAll((command, options) => dispatcher.run(command, options), commands)
   }
 
   const cancel = () => {
@@ -865,6 +1055,8 @@
   }
 
   function select(trackId: string) {
+    // Picking a track ends the devices panel's master view, even when it is already the selected one (#806).
+    ui.masterSelection = null
     if (project.selected?.id !== trackId) run(selectTrack(trackId))
   }
 
@@ -1092,8 +1284,26 @@
    * or last track and for a target that is not a MIDI track. The moved clips become the selection (they get new identifiers in
    * their new track). Returns where each landed, by the identifier it had, or `null` when nothing moved.
    */
-  function sendToTracks(chosen: readonly Block[], rows: number, delta: number, follow?: string): Record<string, Block> | null {
-    const targets = trackTargets(chosen, rows, trackList)
+  function sendToTracks(
+    chosen: readonly Block[],
+    rows: number,
+    delta: number,
+    follow?: string,
+    ifOccupied: 'replace' | 'skip' = 'replace',
+  ): Record<string, Block> | null {
+    const asked = trackTargets(chosen, rows, trackList)
+    // From the keyboard and the menu a move never replaces a clip (#805): it goes on to the next free track, or says why not.
+    let landing = rows
+    if (ifOccupied === 'skip' && !('refused' in asked && asked.refused === 'edge')) {
+      const free = freeRows(chosen, rows, delta, trackList, blocks)
+      // Nowhere free: the first refusal (a track of the other kind says so) stands, else the move says there is no free track.
+      if (free === null && !('refused' in asked)) {
+        announce(t('arrangement.saidNoFreeTrack'))
+        return null
+      }
+      if (free !== null) landing = free
+    }
+    const targets = landing === rows ? asked : trackTargets(chosen, landing, trackList)
     if ('refused' in targets) {
       if (targets.refused === 'edge') announce(t('arrangement.saidNoTrack'))
       else {
@@ -1104,10 +1314,14 @@
       }
       return null
     }
-    run(moveToTrack(targets.moves, delta))
+    const before = new Set(blocks.map((b) => b.id))
+    // A refusal here is not about a taken place (the page checked): the dispatcher shows its own reason.
+    if (!run(moveToTrack(targets.moves, delta, ifOccupied))) return null
     const landed: Record<string, Block> = {}
     for (const b of chosen) {
-      const now = blocks.find((n) => n.row === b.row + rows && n.start === b.start + delta && n.end === b.end + delta && n.offset === b.offset)
+      const now = blocks.find(
+        (n) => !before.has(n.id) && n.row === b.row + landing && n.start === b.start + delta && n.end === b.end + delta && n.offset === b.offset,
+      )
       if (now) landed[b.id] = now
     }
     const all = Object.values(landed)
@@ -1117,14 +1331,18 @@
     const entry = entries[lead.row]
     select(lead.track)
     followClip(lead)
-    announce(t('arrangement.saidMovedTrack', { n: all.length, track: entry ? trackLabel(entry, t) : '', bar: barsOf(lead).from }))
+    const track = entry ? trackLabel(entry, t) : ''
+    const from = chosen.find((b) => b.id === follow) ?? chosen[0]
+    const busy = from ? entries[from.row + rows] : undefined
+    if (landing !== rows && busy) announce(t('arrangement.saidSkippedTrack', { busy: trackLabel(busy, t), track, bar: barsOf(lead).from }))
+    else announce(t('arrangement.saidMovedTrack', { n: all.length, track, bar: barsOf(lead).from }))
     return landed
   }
 
   /** Copies, then selects the copies (the placements that were not there before). */
-  function copyAndSelect(ids: string[], linked: boolean, by?: number): boolean {
+  function copyAndSelect(ids: string[], linked: boolean, by?: number, ifOccupied: 'replace' | 'refuse' = 'replace'): boolean {
     const before = new Set(blocks.map((b) => b.id))
-    run(duplicatePlacements(ids, linked, by))
+    run(duplicatePlacements(ids, linked, by, ifOccupied))
     const fresh = blocks.filter((b) => !before.has(b.id)).map((b) => b.id)
     if (fresh.length > 0) picked = new Set(fresh)
     if (fresh.length > 0) announce(t('arrangement.saidCopied', { n: fresh.length }))
@@ -1139,7 +1357,7 @@
     return now.length === then.length && now.every((p, i) => p.tick === then[i]!.tick && p.value === then[i]!.value && p.shape === then[i]!.shape)
   }
 
-  /** A press in a lane's row: on a point it selects it and starts to move it, elsewhere it adds a point (a click) or draws a box (a drag). */
+  /** A press in a lane's row: on a point it selects it and starts to move it, elsewhere it adds a point (a click of the Draw tool) or draws a box (a drag). */
   function laneDown(event: PointerEvent, row: Row, x: number, y: number) {
     const ref = row.lane ? laneRefs.get(row.lane) : undefined
     if (!ref || !row.lane) return
@@ -1184,7 +1402,7 @@
     }
   }
 
-  /** The end of a press on an empty part: a click adds a point, a drag selects the points in its box. */
+  /** The end of a press on an empty part: a click of the Draw tool adds a point (the Select tool's selects only, #769), a drag selects the points in its box. */
   function finishBox(g: Extract<Gesture, { kind: 'box' }>, tickStep: number | null) {
     const ref = laneRefs.get(g.lane)
     const row = layout.rows.find((r) => r.kind === 'lane' && r.lane === g.lane)
@@ -1198,13 +1416,18 @@
       autoPick = ticks.size > 0 ? { lane: g.lane, ticks } : null
       return
     }
+    // With the Select tool a click only selects (it cleared the selection on the press) and gives the timeline the keyboard: it adds
+    // no point, so that a click meant to focus the timeline leaves the lane as it was (#769). The Draw tool and a double click add.
+    if (mode !== 'draw') return
     const fresh = newPoint(ref.info.axis, shown, geo, g.startX, g.startY, tickStep)
     // A tick that already holds a point (the grab zone is smaller than a snap step): that point is the one pointed at.
     if (pointAtTick(points, fresh.tick)) {
       autoPick = { lane: g.lane, ticks: new Set([fresh.tick]) }
       return
     }
-    run(addPoints(g.lane, [asPoint(fresh)]))
+    // The new point takes the curve of the segment it lands in (`shapeAt`), as one added at the keyboard does.
+    if (run(addPoints(g.lane, [asPoint({ ...fresh, shape: shapeAt(points, fresh.tick) })])))
+      announce(t('automation.saidAdded', { value: ref.info.axis.format(fresh.value), at: atText(fresh.tick) }))
     autoPick = { lane: g.lane, ticks: new Set([fresh.tick]) }
   }
 
@@ -1259,8 +1482,7 @@
     ui.openMenu(
       event,
       [
-        { id: 'point-linear', label: t('automation.menuLinear'), testid: 'point-menu-linear', run: () => setCurve('linear') },
-        { id: 'point-step', label: t('automation.menuStep'), testid: 'point-menu-step', run: () => setCurve('step') },
+        ...SHAPES.map((shape) => ({ id: `point-${shape}`, label: t(SHAPE_NAMES[shape].menu), testid: `point-menu-${shape}`, run: () => setCurve(shape) })),
         { id: 'point-delete', label: t('automation.menuDelete'), testid: 'point-menu-delete', separator: true, run: removePicked },
       ],
       t('automation.menu'),
@@ -1291,21 +1513,22 @@
         { id: 'duplicate', label: t('arrangement.duplicate'), shortcut: mod(['D']), separator: true, run: () => duplicate(false) },
         { id: 'duplicate-linked', label: t('arrangement.duplicateLinked'), shortcut: mod(['Shift', 'D']), run: () => duplicate(true) },
         { id: 'repeat', label: t('arrangement.repeatUntil'), shortcut: mod(['Shift', 'R']), disabled: picked.size !== 1, run: openRepeat },
-        { id: 'split', label: t('arrangement.split'), shortcut: mod(['E']), disabled: cuts.length === 0, run: splitSelected },
+        { id: 'lengthen', label: t('arrangement.lengthenUntil'), shortcut: mod(['Shift', 'L']), disabled: picked.size !== 1, run: openLengthen },
+        { id: 'split', label: t('arrangement.split'), shortcut: mod(['E']), disabled: cuts.length === 0, run: () => splitSelected() },
         {
           id: 'move-up',
           label: t('arrangement.moveUp'),
           shortcut: chordText(['Alt', '↑']),
           separator: true,
           disabled: !('moves' in trackTargets(selection, -1, trackList)),
-          run: () => sendToTracks(selection, -1, 0, block.id),
+          run: () => sendToTracks(selection, -1, 0, block.id, 'skip'),
         },
         {
           id: 'move-down',
           label: t('arrangement.moveDown'),
           shortcut: chordText(['Alt', '↓']),
           disabled: !('moves' in trackTargets(selection, 1, trackList)),
-          run: () => sendToTracks(selection, 1, 0, block.id),
+          run: () => sendToTracks(selection, 1, 0, block.id, 'skip'),
         },
         { id: 'delete', label: t('arrangement.delete'), shortcut: chordText(['Delete']), separator: true, run: removeSelected },
       )
@@ -1326,28 +1549,63 @@
     ui.openMenu(event, items, t('arrangement.menu'))
   }
 
-  /** Opens the field to type the value of the point under a double click. */
-  function editPoint(row: Row, x: number, y: number): boolean {
+  /**
+   * Opens the field to type the value of the point under a double click; on an empty part, the field of a new point there (the tick
+   * snapped as a click of the Draw tool, the value under the pointer): Enter adds it, Escape leaves the lane as it was (#769).
+   */
+  function editPoint(row: Row, x: number, y: number, tickStep: number | null): boolean {
     const ref = row.lane ? laneRefs.get(row.lane) : undefined
     if (!ref || !row.lane) return false
-    const hit = hitPoint(pointsOf(ref.info.lane), ref.info.axis, x, y, shown, geoOf(row))
-    if (!hit) return false
+    const geo = geoOf(row)
+    let hit = hitPoint(pointsOf(ref.info.lane), ref.info.axis, x, y, shown, geo)
+    if (!hit) {
+      const fresh = newPoint(ref.info.axis, shown, geo, x, y, tickStep)
+      hit = pointAtTick(pointsOf(ref.info.lane), fresh.tick)
+      if (!hit) {
+        limitNote = null
+        autoPick = null
+        editing = {
+          lane: row.lane,
+          tick: fresh.tick,
+          x: tickToX(fresh.tick, shown),
+          y: yOfPos(ref.info.axis.pos(fresh.value), geo),
+          fresh: true,
+          initial: ref.info.axis.format(fresh.value),
+        }
+        return true
+      }
+    }
     limitNote = null
     autoPick = { lane: row.lane, ticks: new Set([hit.tick]) }
     editing = { lane: row.lane, tick: hit.tick, x: tickToX(hit.tick, shown), y: yOfPos(ref.info.axis.pos(hit.value), geoOf(row)) }
     return true
   }
 
-  /** What the field of a typed value does with its text: one `automation.points.update`, or nothing when the value is the same. */
+  /**
+   * What the field of a typed value does with its text: one `automation.points.update`, or nothing when the value is the same. A
+   * fresh field adds its point (`automation.points.add`), or updates the point found on its tick meanwhile: one history entry.
+   */
   function commitValue(text: string): boolean {
     const e = editing
     const ref = e ? laneRefs.get(e.lane) : undefined
     const point = ref && e ? pointAtTick(pointsOf(ref.info.lane), e.tick) : null
-    if (!e || !ref || !point) return true
-    const parsed = ref.info.axis.parse(text)
+    if (!e || !ref || (!point && !e.fresh)) return true
+    // A fresh field applied as it opened keeps the lane's exact value (the text is rounded for display).
+    const parsed = e.fresh && text === e.initial && e.exact !== undefined ? { value: e.exact } : ref.info.axis.parse(text)
     if (parsed === null) return false
     const value = ref.info.axis.clamp(parsed.value)
-    if (value !== point.value) run(updatePoints(e.lane, [asPoint({ ...point, value })]))
+    const said = { value: ref.info.axis.format(value), at: atText(e.tick) }
+    if (!point) {
+      // The curve of the segment it lands in: a point inside a held step keeps the hold after it.
+      if (run(addPoints(e.lane, [{ tick: e.tick, value, shape: shapeAt(pointsOf(ref.info.lane), e.tick) }]))) {
+        announce(t('automation.saidAdded', said))
+        editedTick = e.tick
+      }
+      autoPick = { lane: e.lane, ticks: new Set([e.tick]) }
+    } else if (value !== point.value) {
+      if (run(updatePoints(e.lane, [asPoint({ ...point, value })]))) announce(t('automation.saidSet', said))
+      editedTick = e.tick
+    } else editedTick = e.tick
     // A text past the range is brought back to the bound, and the editor says so once the field has closed (#421, as #410 for the controls).
     limitNote = null
     if (parsed.limit !== undefined) sayLimited(ref.info.axis.format(ref.info.axis.clamp(parsed.limit)), e.x, e.y)
@@ -1368,11 +1626,14 @@
   function duplicate(linked: boolean, from: readonly Block[] = selection) {
     const by = copyShift(from)
     if (by === null) return
+    // A copy never replaces the clip that follows (#805): it says so and changes nothing.
+    if (copyBlocked(from, by, blocks)) return announce(t('arrangement.saidCopyBlocked'))
     const keyboard = (document.activeElement as HTMLElement | null)?.dataset?.block !== undefined
     const copied = copyAndSelect(
       from.map((b) => b.id),
       linked,
       by,
+      'refuse',
     )
     // From the keyboard the focus follows the copies, which are the selection: a repeated Ctrl+D copies them again and
     // Shift+arrow starts from them, never from the original left behind (#528).
@@ -1386,12 +1647,44 @@
   // --- repeat until (#555) ------------------------------------------------------------------------------------------
   /** The clip being repeated, and the first bar the field accepts (the one after the clip's end). */
   let repeating = $state<{ id: string; min: number } | null>(null)
-  /** Opens the field for the one clip selected, or the one the keyboard focus is on when nothing is selected. */
+  /** Opens the field for the clip the keyboard focus is on when it is not selected (#805), else for the one clip selected. */
   function openRepeat() {
     const focusedId = (document.activeElement as HTMLElement | null)?.dataset?.block
-    const block = selection.length === 1 ? selection[0] : selection.length === 0 && focusedId ? blocks.find((b) => b.id === focusedId) : undefined
+    const focused = focusedId && !selectedIds.has(focusedId) ? blocks.find((b) => b.id === focusedId) : undefined
+    const block = focused ?? (selection.length === 1 ? selection[0] : undefined)
     if (!block) return announce(t('arrangement.saidRepeatOne'))
     repeating = { id: block.id, min: Math.floor(block.end / bar) + 1 }
+  }
+  // --- lengthen to (#915) -----------------------------------------------------------------------------------------
+  /** The clip being lengthened, and the first bar the field accepts (the one after the clip's end): the rule of "Repeat until". */
+  let lengthening = $state<{ id: string; min: number } | null>(null)
+  function openLengthen() {
+    const focusedId = (document.activeElement as HTMLElement | null)?.dataset?.block
+    const focused = focusedId && !selectedIds.has(focusedId) ? blocks.find((b) => b.id === focusedId) : undefined
+    const block = focused ?? (selection.length === 1 ? selection[0] : undefined)
+    if (!block) return announce(t('arrangement.saidLengthenOne'))
+    lengthening = { id: block.id, min: Math.floor(block.end / bar) + 1 }
+  }
+  /** The end of the clip goes to the end of the bar, in one `arrangement.resize`: its content repeats, no other clip is carved. */
+  function lengthenTo(barNumber: number) {
+    const target = lengthening
+    lengthening = null
+    if (!target) return
+    // The clip may have gone while the field was open.
+    const source = blocks.find((b) => b.id === target.id)
+    if (!source) return
+    const to = barNumber * bar
+    // Never over another clip (#863): the page names the one in the way and sends nothing. An audio end stops at its clip's
+    // last frame, so the page cannot tell where it lands: the core decides (refusal toast).
+    const inTheWay = source.audio ? null : repeatCovers(source, to, blocks)
+    if (inTheWay) return announce(t('arrangement.saidLengthenBlocked', blockerVars(inTheWay)))
+    // Whether an empty clip takes the length with its placement, decided before the resize (#898).
+    const withClip = followsPlacement(source)
+    if (!run(resizePlacement(source.id, 'end', to, 'refuse'))) return
+    const now = blocks.find((b) => b.id === source.id)
+    if (!now || now.end === source.end) return announce(t('arrangement.saidCannotResize'))
+    // The bar actually reached: an audio clip stops at its file's last frame.
+    announce(t(withClip ? 'arrangement.saidLengthenedWithClip' : 'arrangement.saidLengthened', { bar: barsOf(now).to }))
   }
   /**
    * The "More" menu of the toolbar (#575): the actions that are not needed at every step of making a track, with their
@@ -1423,6 +1716,16 @@
           },
         },
         {
+          id: 'more-lengthen',
+          label: t('arrangement.lengthenUntil'),
+          shortcut: mod(['Shift', 'L']),
+          disabled: selection.length !== 1,
+          run: () => {
+            returnFocus = button
+            openLengthen()
+          },
+        },
+        {
           id: 'more-insert-bars',
           label: t('arrangement.insertBars'),
           separator: true,
@@ -1433,8 +1736,14 @@
         },
         { id: 'more-delete-bars', label: t('arrangement.deleteBars'), disabled: !timeSel, run: deleteSelectedTime },
         { id: 'more-marker', label: t('arrangement.addMarker'), shortcut: chordText(['Alt', 'K']), separator: true, run: addMarkerHere },
-        { id: 'more-curve-linear', label: t('automation.curveLinear'), disabled: !autoSel, separator: true, run: () => setCurve('linear') },
-        { id: 'more-curve-step', label: t('automation.curveStep'), disabled: !autoSel, run: () => setCurve('step') },
+        { id: 'more-key-change', label: t('scale.keyChange.addHere'), run: addKeyChangeHere },
+        ...SHAPES.map((shape, i) => ({
+          id: `more-curve-${shape}`,
+          label: t(SHAPE_NAMES[shape].more),
+          disabled: !autoSel,
+          separator: i === 0,
+          run: () => setCurve(shape),
+        })),
       ],
       t('arrangement.more'),
     )
@@ -1453,8 +1762,12 @@
     const target = repeating
     repeating = null
     if (!target) return
+    // The copies never cover a clip (#805): the page names the one in the way and sends nothing.
+    const source = blocks.find((b) => b.id === target.id)
+    const inTheWay = source ? repeatCovers(source, barNumber * bar, blocks) : null
+    if (inTheWay) return announce(t('arrangement.saidRepeatBlocked', blockerVars(inTheWay)))
     // A refusal (an audio clip, the limit, no audio started) shows in the page's own banner; only a success is said here.
-    if (run(repeatPlacement(target.id, barNumber * bar))) announce(t('arrangement.saidRepeated', { bar: barNumber }))
+    if (run(repeatPlacement(target.id, barNumber * bar, 'refuse'))) announce(t('arrangement.saidRepeated', { bar: barNumber }))
   }
 
   function removeSelected() {
@@ -1469,10 +1782,14 @@
   const position = $derived(shownTick === null ? null : Math.round(shownTick))
   const cuts = $derived(position === null ? [] : splittable(selection, position))
 
-  function splitSelected() {
-    if (position === null || cuts.length === 0) return
-    inGroup(cuts.map((b) => splitPlacement(b.id, position)))
-    announce(t('arrangement.saidSplit', { n: cuts.length }))
+  function splitSelected(from: readonly Block[] = selection) {
+    if (position === null) return
+    const targets = splittable(from, position)
+    if (targets.length === 0) return
+    // The count is taken before the cut: it is the placements the cut acts on, not what the selection holds afterwards (#772).
+    const n = targets.length
+    const done = inGroup(targets.map((b) => splitPlacement(b.id, position)))
+    announce(done.ok ? t('arrangement.saidSplit', { n }) : t(done.rolledBack ? 'arrangement.saidNoneSplit' : 'arrangement.saidCannotSplit'))
   }
 
   function onDoubleClick(event: MouseEvent) {
@@ -1481,7 +1798,7 @@
     const where = rowAt(layout, y, y0)
     // In a lane, a double click on a point opens the field to type its value (the clicks before it added or selected it).
     if (where?.kind === 'lane') {
-      editPoint(where, x, y)
+      editPoint(where, x, y, stepOf(event))
       return
     }
     if (where?.kind === 'add') return
@@ -1498,7 +1815,13 @@
     const start = Math.floor(snapTick(xToTick(x, shown), stepOf(event)) / bar) * bar
     if (!isFree(blocks, row, start, start + bar)) return
     select(entry.id)
+    const before = new Set(blocks.map((b) => b.id))
     run(createClipAt(entry.id, start, bar))
+    // The new clip opens below, as a double click on an existing one does (PN-3, #84).
+    const made = blocks.find((b) => !before.has(b.id) && b.row === row)
+    if (!made) return
+    picked = new Set([made.id])
+    openBlock(made)
   }
 
   // --- a clip dropped from the Clips panel (#473) ----------------------------------------------------------------
@@ -1587,8 +1910,16 @@
     }
   }
 
+  /** The clip a key was pressed on when it is not selected: that clip, not the selection behind it, is what the key acts on (#805). */
+  function focusedOutsideSelection(event: KeyboardEvent): Block | undefined {
+    const id = (event.target as HTMLElement | null)?.dataset?.block
+    return id && !selectedIds.has(id) ? blocks.find((b) => b.id === id) : undefined
+  }
+
   function onKeyDown(event: KeyboardEvent) {
     if (isTextTarget(event.target)) return
+    // A point's cell handles its own keys (#769); the ones it leaves (Shift+Delete, Ctrl+D) must not act on the selection behind it.
+    if ((event.target as HTMLElement | null)?.dataset?.pointLane !== undefined) return
     const mod = (event.ctrlKey || event.metaKey) && !event.altKey
     if (event.key === 'Delete' || event.key === 'Backspace') {
       if (autoSel) removePicked()
@@ -1606,14 +1937,18 @@
       if (lane && ref) autoPick = { lane, ticks: new Set(pointsOf(ref.info.lane).map((p) => p.tick)) }
       else picked = new Set(blocks.map((b) => b.id))
     } else if (mod && event.key.toLowerCase() === 'd') {
-      // With nothing selected, Ctrl+D copies the clip the keyboard focus is on (a Tab, Escape). A selection is always copied whole,
-      // as the Duplicate button's count says (#528).
-      const id = (event.target as HTMLElement | null)?.dataset?.block
-      const focused = id && selection.length === 0 ? blocks.find((b) => b.id === id) : undefined
+      // The clip the keyboard focus is on is the one copied, on its own track, unless it is part of the selection: then the
+      // selection is copied whole, as the Duplicate button's count says (#528). A selection left on another track (a clip made
+      // earlier from the free cursor) never takes the copy elsewhere (#805).
+      const focused = focusedOutsideSelection(event)
       if (focused) picked = new Set([focused.id])
       duplicate(event.shiftKey, focused ? [focused] : selection)
-    } else if (mod && !event.shiftKey && event.key.toLowerCase() === 'e') splitSelected()
-    else return
+    } else if (mod && !event.shiftKey && event.key.toLowerCase() === 'e') {
+      // As Ctrl+D: the clip the keyboard focus is on is the one cut, unless it is part of the selection (#772, #805).
+      const focused = focusedOutsideSelection(event)
+      if (focused) picked = new Set([focused.id])
+      splitSelected(focused ? [focused] : selection)
+    } else return
     event.preventDefault()
   }
 
@@ -1691,16 +2026,24 @@
   /** The cell in the tab order: the focused clip when it still exists, else the first selected, else the first clip. */
   const tabId = $derived((focusId && blocks.some((b) => b.id === focusId) ? focusId : null) ?? selection[0]?.id ?? blocks[0]?.id ?? null)
   const barsOf = (b: Block) => ({ from: Math.floor(b.start / bar) + 1, to: Math.max(Math.floor(b.start / bar) + 1, Math.ceil(b.end / bar)) })
+  /** What a message names of a clip in the way: its name and its bars (#805). */
+  const blockerVars = (b: Block) => ({ name: b.name || t('arrangement.clipDefault'), from: barsOf(b).from, to: barsOf(b).to })
+  /** Where a clip starts and ends, said in bars when both fall on a bar line, else with the beats (#805): two clips never read alike. */
+  function whereText(b: Block): string {
+    if (b.start % bar === 0 && b.end % bar === 0) return t('arrangement.clipBars', { from: barsOf(b).from, to: barsOf(b).to })
+    const [from, to] = [barBeat(b.start), barBeat(b.end)]
+    return t('arrangement.clipBeats', { fromBar: from.bar, fromBeat: from.beat, toBar: to.bar, toBeat: to.beat })
+  }
   function clipText(b: Block): string {
     const entry = entries[b.row]
     const name = b.name || t('arrangement.clipDefault')
-    const where = barsOf(b)
-    const parts = [t('arrangement.clipItem', { name, track: entry ? trackLabel(entry, t) : '', from: where.from, to: where.to })]
+    const parts = [t('arrangement.clipItem', { name, track: entry ? trackLabel(entry, t) : '', where: whereText(b) })]
     if (b.audio) parts.push(t('audio.clipAudio'))
     // A linked clip and a repeated content are said (#473), as they are drawn.
     if (b.uses > 1) parts.push(t('arrangement.clipLinked'))
     const passes = b.audio ? 1 : passCount(b)
-    if (passes > 1) parts.push(t('arrangement.clipPasses', { n: passes }))
+    // An empty clip has no content to play again (#898): its placement is its length.
+    if (passes > 1 && b.notes.length > 0) parts.push(t('arrangement.clipPasses', { n: passes }))
     if (selectedIds.has(b.id)) parts.push(t('arrangement.clipSelected'))
     return parts.join(', ')
   }
@@ -1767,6 +2110,14 @@
       event.stopPropagation()
       return putHeadAtCursor()
     }
+    // Home brings the free cursor back to bar 1 (#852); the playhead stays.
+    if (cursorJumpKey(event) === 'start' && (event.target as HTMLElement).dataset.cursor !== undefined && cursorPos) {
+      event.preventDefault()
+      event.stopPropagation()
+      cursorAt = { row: cursorPos.row, tick: 0 }
+      void focusCursor()
+      return
+    }
     const key = rovingKey(event)
     if (key && (event.target as HTMLElement).dataset.cursor !== undefined) return onCursorKey(event, key)
     // Page Up and Page Down mean a velocity: a clip has none.
@@ -1806,7 +2157,7 @@
       if (!selectedIds.has(current.id)) picked = new Set([current.id])
       // Up and Down move the clips to the track above or below (`arrangement.move_to_track`).
       if (key.direction === 'up' || key.direction === 'down') {
-        const landed = sendToTracks(chosen, key.direction === 'up' ? -1 : 1, 0, current.id)
+        const landed = sendToTracks(chosen, key.direction === 'up' ? -1 : 1, 0, current.id, 'skip')
         const now = landed?.[current.id]
         if (now) void focusItem(now.id)
         return
@@ -1820,29 +2171,40 @@
           return to === null ? [] : [{ id: b.id, to }]
         })
         if (ends.length === 0) return announce(t('arrangement.saidCannotResize'))
-        inGroup(ends.map((e) => resizePlacement(e.id, 'end', e.to)))
+        // A longer clip never carves the next one (#863): the page names the clip in the way and sends nothing.
+        for (const e of ends) {
+          const from = blocks.find((b) => b.id === e.id)
+          // An audio end stops at its clip's last frame, so the page cannot tell where it lands: the core decides (refusal toast).
+          const inTheWay = from && !from.audio ? repeatCovers(from, e.to, blocks) : null
+          if (inTheWay) return announce(t('arrangement.saidResizeBlocked', blockerVars(inTheWay)))
+        }
+        // The core can still refuse one (an audio end stops at its clip's last frame): then all of them stay as they were (#867).
+        // Whether the focused clip (or the first) takes its placement's length with it, decided before the resize (#898).
+        const wasEmpty = (() => {
+          const e = ends.find((x) => x.id === current.id) ?? ends[0]!
+          const b = blocks.find((x) => x.id === e.id)
+          return !!b && followsPlacement(b)
+        })()
+        const done = inGroup(ends.map((e) => resizePlacement(e.id, 'end', e.to, 'refuse')))
+        if (!done.ok) return announce(t(done.rolledBack ? 'arrangement.saidNoneResized' : 'arrangement.saidResizePartial'))
         // The length of the focused clip when it moved, else of the first that did.
         const said = blocks.find((b) => b.id === (ends.some((e) => e.id === current.id) ? current.id : ends[0]!.id))
-        if (said) announce(lengthText(t, signature, said.length))
+        if (said) {
+          const length = lengthText(t, signature, said.length)
+          announce(wasEmpty ? t('arrangement.saidLengthWithClip', { length }) : length)
+        }
         void focusItem(current.id)
         return
       }
       const delta = moveDelta(chosen, current, current.start + sign * nudge, current.start, null)
       if (delta === 0) return announce(t('arrangement.saidCannotMove'))
-      // A move over other clips carves them (`arrangement.move`): what it did to them is said too.
+      // A move from the keyboard never carves a clip (#805): it says which one is in the way and changes nothing.
       const ids = new Set(chosen.map((b) => b.id))
-      const others = new Map(blocks.filter((b) => !ids.has(b.id)).map((b) => [b.id, `${b.start}:${b.end}`]))
-      run(movePlacements([...ids], delta))
-      const after = blocks.filter((b) => !ids.has(b.id))
-      const carved = [...others].filter(([bid, span]) => {
-        const now = after.find((b) => b.id === bid)
-        return !now || `${now.start}:${now.end}` !== span
-      }).length
+      const inTheWay = landingOn(chosen, delta, blocks)
+      if (inTheWay) return announce(t('arrangement.saidMoveBlocked', blockerVars(inTheWay)))
+      if (!run(movePlacements([...ids], delta, 'refuse'))) return
       const moved = blocks.find((b) => b.id === current.id)
-      if (moved) {
-        const said = t('arrangement.saidMoved', { n: chosen.length, bar: barsOf(moved).from })
-        announce(carved > 0 ? `${said}. ${t('arrangement.saidCarved', { n: carved })}` : said)
-      }
+      if (moved) announce(t('arrangement.saidMoved', { n: chosen.length, bar: barsOf(moved).from }))
       void focusItem(current.id)
       return
     }
@@ -1948,6 +2310,46 @@
     stage?.querySelector<HTMLElement>('[data-testid="arr-cursor"]')?.focus()
   }
 
+  // "Go to" (Ctrl+G) puts the free cursor on the playhead's new bar too, on the selected track (#852). The focus stays where it is.
+  let seenGoto = untrack(() => ui.gotoTarget?.n ?? 0)
+  $effect(() => {
+    const target = ui.gotoTarget
+    if (!target || target.n === seenGoto) return
+    seenGoto = target.n
+    untrack(() => {
+      if (entries.length === 0) return
+      const row = Math.max(
+        0,
+        entries.findIndex((e) => e.id === project.selected?.id),
+      )
+      cursorAt = { row, tick: Math.min(Math.max(0, target.tick), Math.max(0, totalBars * bar - 1)) }
+    })
+  })
+
+  /**
+   * Alt+N, on the selected track, empty or not (#852): an empty clip of one bar in the playhead's bar. It never replaces a
+   * placement (a taken bar is refused and said), and the new clip takes the focus (Enter opens it).
+   */
+  function newClipAtHead() {
+    // The row is taken before the command: the entries are made again once the project changed.
+    const row = entries.findIndex((e) => e.id === project.selected?.id)
+    const entry = entries[row]
+    const view = project.view
+    if (!entry || !view) return
+    const start = barStart(headTick(), bar)
+    const made = newClipAt(view.project, entry.id, start, bar)
+    if ('refused' in made)
+      return announce(t(made.refused === 'notMidi' ? 'arrangement.saidNotMidi' : 'arrangement.saidNoRoomAt', { bar: Math.floor(start / bar) + 1 }))
+    if (!run(made.command)) return
+    cursorAt = { row, tick: start }
+    const block = blocks.find((b) => b.row === row && b.start === start)
+    announce(t('arrangement.saidClipAtHead', { track: trackLabel(entry, t), bar: Math.floor(start / bar) + 1 }))
+    if (!block) return
+    picked = new Set([block.id])
+    followClip(block)
+    void focusItem(block.id)
+  }
+
   /** The playhead goes to the free cursor's tick (`transport.seek`), and the live region says where. */
   function putHeadAtCursor() {
     const at = cursorPos
@@ -2009,6 +2411,294 @@
     followClip(made)
     announce(t('arrangement.saidCreated', { bar: Math.floor(at.tick / bar) + 1 }))
     void focusItem(made.id)
+  }
+
+  // --- the automation lanes at the keyboard (#769) ---------------------------------------------------------------------
+  // A lane's head takes I or Insert (a point at the playhead: the field of its value opens there, Enter adds it), R ("Ramp to…": one
+  // `automation.points.restore`, a straight line from the lane's value at the playhead) and Right (into its points). The points
+  // are cells of the grid above, one row per lane shown: the arrows go from point to point, Enter types a value, Delete removes,
+  // Alt+arrows change the value or the position by a step. Every edit is a command, and the live region says what it did.
+
+  /** Whether a lane shown holds a point on a tick. */
+  const hasPoint = (lane: string, at: number) => {
+    const ref = laneRefs.get(lane)
+    return !!ref && pointAtTick(pointsOf(ref.info.lane), at) !== null
+  }
+  /** "at bar 5", "at bar 5, beat 2.5": where a point is, for the live region and the cells. */
+  function atText(at: number): string {
+    const where = barBeat(at)
+    return where.beat === 1 ? t('automation.atBar', { bar: where.bar }) : t('automation.atBeat', where)
+  }
+  /** The value a lane's parameter has before the lane holds a point: the project's (a device's parameter, the owner's volume or pan). */
+  function paramValue(trackId: string, info: LaneInfo): number {
+    const target = info.lane.target
+    const axis = info.axis
+    const view = project.view?.project
+    if ('mixer' in target) {
+      const mixer = trackId === MASTER ? view?.master : view?.tracks[trackId]?.mixer
+      if (!mixer) return axis.at(axis.home)
+      return axis.clamp(target.mixer.param === 'gain' ? (mixer.gain_db ?? MIN_GAIN_DB) : mixer.pan)
+    }
+    const devices = trackId === MASTER ? view?.master_devices : view?.tracks[trackId]?.devices
+    const value = devices?.[target.device.device]?.params[target.device.param]
+    return value === undefined ? axis.at(axis.home) : axis.clamp(value)
+  }
+  /** A lane's value on a tick, kept to the parameter's step: what its points give there, else the parameter's own. */
+  function laneValue(lane: string, at: number): number | null {
+    const ref = laneRefs.get(lane)
+    if (!ref) return null
+    const value = valueAt(pointsOf(ref.info.lane), at, ref.info.lane.target, ref.info.axis.log)
+    return value === null ? paramValue(ref.trackId, ref.info) : ref.info.axis.clamp(value)
+  }
+  /** The keys of a point and of a ramp as written on the user's keyboard (they work by position). */
+  const pointKeyLabel = $derived(positionKey(POINT_CODE, ui.keyLayout))
+  const rampKeyLabel = $derived(positionKey(RAMP_CODE, ui.keyLayout))
+  const curveKeyLabel = $derived(positionKey(CURVE_CODE, ui.keyLayout))
+  /** The tick of the playhead, whole and on the timeline. */
+  const headAt = () => Math.min(MAX_TICK, Math.round(headTick()))
+  const laneRow = (lane: string) => layout.rows.find((r) => r.kind === 'lane' && r.lane === lane)
+
+  /** Brings a tick and a lane's row into the window. */
+  function bringIntoView(at: number, lane: string) {
+    const [from, to] = visibleRange(shown, stageW)
+    if (at < from || at > to) {
+      follow = false
+      view = clampView({ pxPerTick: shown.pxPerTick, scrollTick: at - (stageW / shown.pxPerTick) * PAGE_LEAD }, stageW, totalTicks)
+    }
+    const row = laneRow(lane)
+    if (!row) return
+    const room = stageH - RULER_HEIGHT
+    if (row.top < y0) scrollY = clampScrollY(row.top, layout.total, stageH)
+    else if (row.top + row.height > y0 + room) scrollY = clampScrollY(row.top + row.height - room, layout.total, stageH)
+  }
+
+  /** Gives the keyboard to a point of a lane (its cell), in sight, and selects it. */
+  async function focusPointCell(lane: string, at: number) {
+    if (!hasPoint(lane, at)) return
+    focusPoint = { lane, tick: at }
+    autoPick = { lane, ticks: new Set([at]) }
+    bringIntoView(at, lane)
+    await tick()
+    itemsEl?.querySelector<HTMLElement>(`[data-point-lane="${CSS.escape(lane)}"][data-tick="${at}"]`)?.focus()
+  }
+  /** Gives the keyboard back to a lane's head (its button that adds a point at the playhead). */
+  function focusLaneHead(lane: string) {
+    focusPoint = null
+    document.querySelector<HTMLElement>(`[data-testid="arr-lane"][data-lane="${CSS.escape(lane)}"] [data-testid="arr-lane-point"]`)?.focus()
+  }
+
+  /** I: the field of a new point at the playhead, on the lane's value there; Enter adds it (or sets the point already on that tick). */
+  async function pointAtHead(lane: string, back: HTMLElement | null) {
+    const ref = laneRefs.get(lane)
+    const at = headAt()
+    const value = laneValue(lane, at)
+    if (!ref || value === null) return
+    bringIntoView(at, lane)
+    await tick()
+    const row = laneRow(lane)
+    if (!row) return
+    limitNote = null
+    editing = {
+      lane,
+      tick: at,
+      x: tickToX(at, shown),
+      y: yOfPos(ref.info.axis.pos(value), geoOf(row)),
+      fresh: true,
+      initial: ref.info.axis.format(value),
+      exact: value,
+      back,
+    }
+  }
+
+  /** R: the "Ramp to…" dialog, from the lane's value at the playhead as it is now. */
+  function openRamp(lane: string, back: HTMLElement | null) {
+    const at = headAt()
+    const from = laneValue(lane, at)
+    if (from === null) return
+    ramping = { lane, back, head: at, from }
+  }
+  /** The curve of the last ramp drawn, offered again by the dialog (#918). */
+  let rampShape = $state<Shape>('linear')
+  const rampRef = $derived(ramping ? laneRefs.get(ramping.lane) : undefined)
+  /** The ramp asked: one `automation.points.restore` (the two ends, the points between taken out), one history entry. */
+  function submitRamp(at: number, entry: AxisEntry, shape: Shape) {
+    const r = ramping
+    const ref = r ? laneRefs.get(r.lane) : undefined
+    ramping = null
+    if (!r || !ref) return
+    const axis = ref.info.axis
+    const value = axis.clamp(entry.value)
+    const plan = rampPlan(pointsOf(ref.info.lane), { tick: r.head, value: r.from }, { tick: at, value }, shape)
+    if (!plan || !run(restorePoints(r.lane, plan.points, plan.remove))) {
+      r.back?.focus()
+      return
+    }
+    // The curve is kept for the next ramp, and the playhead goes to the end point: the next segment starts from there (#918).
+    rampShape = shape
+    // Not while it plays: playback would jump away from what is heard.
+    if (!running) placeHead(at)
+    const said = [
+      t('automation.saidRamp', {
+        from: axis.format(r.from),
+        fromAt: atText(r.head),
+        to: axis.format(value),
+        toAt: atText(at),
+        curve: t(SHAPE_NAMES[shape].word),
+      }),
+    ]
+    if (entry.limit !== undefined) said.push(t('controls.limited', { value: axis.format(axis.clamp(entry.limit)) }))
+    if (plan.remove.length > 0) said.push(t('automation.saidReplaced', { n: plan.remove.length }))
+    announce(said.join('. '))
+    void focusPointCell(r.lane, at)
+  }
+  function closeRamp() {
+    const r = ramping
+    ramping = null
+    if (r?.back?.isConnected) r.back.focus()
+  }
+
+  /** The keys of a lane's head (any of its buttons). */
+  function onLaneHeadKey(event: KeyboardEvent, lane: string) {
+    if (isTextTarget(event.target)) return
+    const action = laneKey(event)
+    if (!action) return
+    // Taken here, so that the timeline's keys do not see it (I and R play no note).
+    event.preventDefault()
+    event.stopPropagation()
+    const back = event.target as HTMLElement
+    if (action === 'point') return void pointAtHead(lane, back)
+    if (action === 'ramp') return openRamp(lane, back)
+    const ref = laneRefs.get(lane)
+    const points = ref ? pointsOf(ref.info.lane) : []
+    const index = entryIndex(points, headTick())
+    if (index < 0) return announce(t('automation.saidNoPoint', { point: pointKeyLabel }))
+    void focusPointCell(lane, points[index]!.tick)
+  }
+
+  /** The keys of a point's cell. */
+  function onPointKey(event: KeyboardEvent, lane: string, at: number) {
+    const action = pointKey(event)
+    const ref = laneRefs.get(lane)
+    if (!action || !ref) return
+    event.preventDefault()
+    event.stopPropagation()
+    const cell = event.currentTarget as HTMLElement
+    const axis = ref.info.axis
+    const points = pointsOf(ref.info.lane)
+    const index = lowerBound(points, at)
+    const point = points[index]?.tick === at ? points[index]! : null
+    if (!point) return focusLaneHead(lane)
+    if (action.kind === 'point') return void pointAtHead(lane, cell)
+    if (action.kind === 'ramp') return openRamp(lane, cell)
+    if (action.kind === 'leave') return focusLaneHead(lane)
+    if (action.kind === 'go') return void focusPointCell(lane, points[goIndex(points.length, index, action.to)]!.tick)
+    if (action.kind === 'edit') {
+      const row = laneRow(lane)
+      if (!row) return
+      limitNote = null
+      editing = { lane, tick: at, x: tickToX(at, shown), y: yOfPos(axis.pos(point.value), geoOf(row)), back: cell }
+      return
+    }
+    if (action.kind === 'delete') {
+      const next = points[index + 1] ?? points[index - 1]
+      if (!run(removePoints(lane, [at]))) return
+      announce(t('automation.saidRemoved', { at: atText(at) }))
+      autoPick = null
+      if (next) void focusPointCell(lane, next.tick)
+      else focusLaneHead(lane)
+      return
+    }
+    if (action.kind === 'curve') {
+      // C and Shift+C: the next or the previous curve of the list (#881), one `points.update`.
+      const shape = nextShape(point.shape, action.direction)
+      if (run(updatePoints(lane, [asPoint({ ...point, shape })]))) announce(t('automation.saidCurve', { shape: t(SHAPE_NAMES[shape].word), at: atText(at) }))
+      return
+    }
+    if (action.kind === 'value') {
+      const value = stepValue(axis, point.value, action.direction, action.big)
+      const said = t('automation.saidSet', { value: axis.format(value), at: atText(at) })
+      if (value === point.value) return announce(said)
+      if (run(updatePoints(lane, [asPoint({ ...point, value })]))) announce(said)
+      return
+    }
+    // Alt+Left and Right: one snap step, as a drag does it (the old point out, the new one in, one history group).
+    const to = nudgedTick(at, action.direction, nudge)
+    if (to === null) return announce(t('automation.saidCannotMove'))
+    // A key never removes a point it was not on: another point on the target tick stops the move (a pointer drag replaces it, as seen).
+    if (hasPoint(lane, to)) return announce(t('automation.saidOccupied', { at: atText(to) }))
+    const plan = planMove(points, [point], [{ ...point, tick: to }])
+    if (plan?.kind === 'move') inGroup([removePoints(lane, plan.remove), addPoints(lane, plan.add)])
+    // Nothing to do, or the project refused it: said, so that a key is never silent.
+    if (!hasPoint(lane, to)) return announce(t('automation.saidCannotMove'))
+    announce(t('automation.saidMovedPoint', { at: atText(to) }))
+    void focusPointCell(lane, to)
+  }
+
+  /** The most cells of points a lane shows at once: a denser view keeps the focused one only (the keyboard still reaches every point). */
+  const MAX_POINT_CELLS = 256
+  /** The size of a point's cell, in CSS pixels. */
+  const POINT_CELL = 14
+  /** The rows of the grid: each track's clips, and one row per lane shown (a track's or the master's) for its points. */
+  const gridRows = $derived(layout.rows.filter((r) => (r.kind === 'track' && r.trackId !== MASTER) || (r.kind === 'lane' && !!r.lane && laneRefs.has(r.lane))))
+  /**
+   * The words of a point's cell, kept by lane object (the project replaces a lane when it changes) and by index, so that a scroll or
+   * the playback, which move the cells, never rebuild them; a new language or meter starts a new cache.
+   */
+  const labelCache = $derived.by(() => {
+    void ui.lang
+    void signature
+    return new WeakMap<object, string[]>()
+  })
+  function pointLabel(info: LaneInfo, i: number): string {
+    let labels = labelCache.get(info.lane)
+    if (!labels) {
+      labels = []
+      labelCache.set(info.lane, labels)
+    }
+    const points = pointsOf(info.lane)
+    const p = points[i]!
+    labels[i] ??= t('automation.pointCell', {
+      value: info.axis.format(p.value),
+      at: atText(p.tick),
+      curve: t(SHAPE_NAMES[p.shape].word),
+      i: i + 1,
+      n: points.length,
+    })
+    return labels[i]
+  }
+  /** The cells of a lane's points: those in sight (up to the cap), and the focused one wherever it is. */
+  function pointCells(row: Row) {
+    const ref = row.lane ? laneRefs.get(row.lane) : undefined
+    if (!ref || stageW === 0) return []
+    const points = pointsOf(ref.info.lane)
+    const geo = geoOf(row)
+    const inRows = geo.top + geo.height >= RULER_HEIGHT && geo.top <= stageH
+    const [from, to] = visibleRange(shown, stageW)
+    const lo = lowerBound(points, from)
+    const hi = lowerBound(points, to + 1)
+    // A local set, built and read in this call: no reactivity to give it.
+    // eslint-disable-next-line svelte/prefer-svelte-reactivity
+    const chosen = new Set<number>()
+    if (inRows && hi - lo <= MAX_POINT_CELLS) for (let i = lo; i < hi; i++) chosen.add(i)
+    const focused = focusPoint
+    if (focused && focused.lane === row.lane) {
+      const i = lowerBound(points, focused.tick)
+      if (points[i]?.tick === focused.tick) chosen.add(i)
+    }
+    const pick = autoPick
+    const selected = pick && pick.lane === row.lane ? pick.ticks : NO_TICKS
+    return [...chosen]
+      .sort((a, b) => a - b)
+      .map((i) => {
+        const p = points[i]!
+        return {
+          tick: p.tick,
+          left: tickToX(p.tick, shown) - POINT_CELL / 2,
+          top: yOfPos(ref.info.axis.pos(p.value), geo) - POINT_CELL / 2,
+          selected: selected.has(p.tick),
+          label: pointLabel(ref.info, i),
+        }
+      })
   }
 
   // Undo and redo say what they did here too (#494), from wherever they were asked; what was said before the view opened is not said again.
@@ -2158,7 +2848,9 @@
         {/each}
       </select>
     </label>
-    <button title={t('arrangement.splitHint')} disabled={cuts.length === 0} data-testid="arr-split" onclick={splitSelected}>{t('arrangement.split')}</button>
+    <button title={t('arrangement.splitHint')} disabled={cuts.length === 0} data-testid="arr-split" onclick={() => splitSelected()}
+      >{t('arrangement.split')}</button
+    >
     <button title={t('arrangement.duplicateHint')} disabled={selection.length === 0} data-testid="arr-duplicate" onclick={() => duplicate(false)}
       >{t('arrangement.duplicate')}{#if selection.length > 1}
         ({selection.length}){/if}</button
@@ -2284,22 +2976,54 @@
           {:else if row.kind === 'lane'}
             {@const ref = laneRefs.get(row.lane ?? '')}
             {#if ref}
-              {@const live = shownTick === null ? null : valueAt(pointsOf(ref.info.lane), shownTick, ref.info.lane.target)}
+              {@const live = shownTick === null ? null : valueAt(pointsOf(ref.info.lane), shownTick, ref.info.lane.target, ref.info.axis.log)}
+              {@const count = pointsOf(ref.info.lane).length}
+              <!-- The group relays the keys of its buttons: I (Insert), R and Right (#769). -->
+              <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
               <div
                 class="lane-head"
                 style:height="{row.height}px"
                 style:--swatch={ref.color}
                 role="group"
                 aria-label={t('automation.lane', { title: ref.info.title })}
-                title={t('automation.laneHint')}
+                title={t('automation.laneHint', { point: pointKeyLabel, ramp: rampKeyLabel, curve: curveKeyLabel })}
                 data-testid="arr-lane"
                 data-lane={row.lane}
                 data-target={ref.info.title}
-                data-points={Object.keys(ref.info.lane.points).length}
+                data-points={count}
+                onkeydown={(e) => onLaneHeadKey(e, row.lane!)}
               >
                 <span class="swatch"></span>
-                <span class="lane-name"><span class="group">{ref.info.group}</span><span class="param">{ref.info.label}</span></span>
+                <span class="lane-name"
+                  ><span class="group">{ref.info.group}</span><span class="param">{ref.info.label}</span><span class="count" data-testid="arr-lane-count"
+                    >{t('automation.pointCount', { n: count })}</span
+                  ></span
+                >
                 <span class="lane-value" title={t('automation.valueNow')} data-testid="arr-lane-value">{live === null ? '' : ref.info.axis.format(live)}</span>
+                <button
+                  class="lane-tool"
+                  aria-label={t('automation.addPointFor', { title: ref.info.title })}
+                  aria-keyshortcuts="{pointKeyLabel} Insert"
+                  title={withShortcut(t('automation.addPoint'), [pointKeyLabel])}
+                  data-testid="arr-lane-point"
+                  onclick={(e) => pointAtHead(row.lane!, e.currentTarget)}
+                >
+                  <svg width="10" height="10" viewBox="0 0 14 14" aria-hidden="true"
+                    ><path d="M7 2 V 12 M2 7 H 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" /></svg
+                  >
+                </button>
+                <button
+                  class="lane-tool"
+                  aria-label={t('automation.rampFor', { title: ref.info.title })}
+                  aria-keyshortcuts={rampKeyLabel}
+                  title={withShortcut(t('automation.ramp'), [rampKeyLabel])}
+                  data-testid="arr-lane-ramp"
+                  onclick={(e) => openRamp(row.lane!, e.currentTarget)}
+                >
+                  <svg width="10" height="10" viewBox="0 0 14 14" aria-hidden="true"
+                    ><path d="M2 12 L 12 2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" /></svg
+                  >
+                </button>
                 <button
                   class="lane-delete"
                   aria-label={t('automation.deleteLane', { title: ref.info.title })}
@@ -2418,6 +3142,36 @@
           {/if}
         {/each}
       </div>
+      <!-- The key changes on the ruler (#953): the key from that bar on; a click puts the playhead there, a drag moves it by bars. -->
+      <div class="key-changes" role="group" aria-label={t('scale.keyChange.group')} data-testid="arr-key-changes">
+        {#each keyChanges as change (change.tick)}
+          {@const dragging = keyDrag?.tick === change.tick ? keyDrag.dx : 0}
+          {@const x = tickToX(change.tick, shown) + dragging}
+          {#if x >= -200 && x <= stageW}
+            <button
+              class="key-change"
+              class:dragging={dragging !== 0}
+              type="button"
+              style:left="{x}px"
+              title={t('scale.keyChange.hint')}
+              aria-label={t('scale.keyChange.title', { bar: barOf(change.tick), name: scaleName(change.scale, t) })}
+              data-testid="arr-key-change"
+              data-tick={change.tick}
+              onpointerdown={(e) => onKeyChangeDown(e, change)}
+              onpointermove={onKeyChangeMove}
+              onpointerup={(e) => onKeyChangeUp(e, change)}
+              onpointercancel={() => (keyDrag = null)}
+              onlostpointercapture={() => (keyDrag = null)}
+              oncontextmenu={(e) => onKeyChangeContext(e, change)}
+              onkeydown={(e) => onKeyChangeKey(e, change)}
+              onclick={(e) => {
+                // A keyboard activation (no pointer): the playhead goes there; a pointer click was handled on release.
+                if (e.detail === 0) goToKeyChange(change)
+              }}>{change.name}</button
+            >
+          {/if}
+        {/each}
+      </div>
       <!-- The clips as named cells over the canvas (#471): the keyboard's and the screen reader's way to them. The pointer goes through to the canvas. -->
       <!-- The cells are the focusable parts of the grid (roving tabindex), as in the launch grid; the grid only listens for their keys. -->
       <!-- svelte-ignore a11y_interactive_supports_focus -->
@@ -2426,7 +3180,7 @@
         bind:this={itemsEl}
         role="grid"
         aria-label={t('arrangement.clipsGrid')}
-        aria-rowcount={entries.length}
+        aria-rowcount={gridRows.length}
         aria-multiselectable="true"
         style:top="{RULER_HEIGHT}px"
         data-testid="arr-items"
@@ -2434,44 +3188,73 @@
         onfocusin={onItemsFocus}
         onfocusout={onItemsFocusOut}
       >
-        {#each entries as entry, row (entry.id)}
-          {@const cells = shownItems.filter((i) => i.block.track === entry.id)}
-          {@const here = cursorPos?.row === row && cursorCell && stageW > 0 ? cursorCell : null}
-          {#if cells.length > 0 || here}
-            <div role="row" aria-rowindex={entry.index + 1} aria-label={trackLabel(entry, t)}>
-              {#if here}
-                <div
-                  class="item cursor"
-                  role="gridcell"
-                  tabindex={cursorTab ? 0 : -1}
-                  aria-selected="false"
-                  aria-label={cursorText}
-                  data-cursor=""
-                  data-testid="arr-cursor"
-                  data-row={cursorPos?.row}
-                  data-tick={cursorPos?.tick}
-                  style:left="{here.left}px"
-                  style:top="{here.top - RULER_HEIGHT}px"
-                  style:width="{here.width}px"
-                  style:height="{here.height}px"
-                ></div>
-              {/if}
-              {#each cells as cell (cell.block.id)}
-                <div
-                  class="item"
-                  role="gridcell"
-                  tabindex={cell.block.id === tabId && !cursorTab ? 0 : -1}
-                  aria-selected={selectedIds.has(cell.block.id)}
-                  aria-label={clipText(cell.block)}
-                  data-block={cell.block.id}
-                  data-testid="arr-item"
-                  style:left="{cell.left}px"
-                  style:top="{cell.top - RULER_HEIGHT}px"
-                  style:width="{cell.width}px"
-                  style:height="{cell.height}px"
-                ></div>
-              {/each}
-            </div>
+        {#each gridRows as gridRow, index (gridRow.kind === 'lane' ? `lane:${gridRow.lane}` : `track:${gridRow.trackId}`)}
+          {#if gridRow.kind === 'lane'}
+            {@const ref = laneRefs.get(gridRow.lane ?? '')}
+            {@const points = pointCells(gridRow)}
+            {#if ref && points.length > 0}
+              <!-- The points of a lane (#769): one cell each, reached from the lane's head; the cell takes its own keys. -->
+              <div role="row" aria-rowindex={index + 1} aria-label={t('automation.pointsRow', { title: ref.info.title })} data-testid="arr-point-row">
+                {#each points as cell (cell.tick)}
+                  <div
+                    class="item point"
+                    role="gridcell"
+                    tabindex="-1"
+                    aria-selected={cell.selected}
+                    aria-label={cell.label}
+                    data-point-lane={gridRow.lane}
+                    data-tick={cell.tick}
+                    data-testid="arr-point"
+                    style:left="{cell.left}px"
+                    style:top="{cell.top - RULER_HEIGHT}px"
+                    style:width="{POINT_CELL}px"
+                    style:height="{POINT_CELL}px"
+                    onkeydown={(e) => onPointKey(e, gridRow.lane!, cell.tick)}
+                  ></div>
+                {/each}
+              </div>
+            {/if}
+          {:else}
+            {@const entry = entries[gridRow.track]!}
+            {@const row = gridRow.track}
+            {@const cells = shownItems.filter((i) => i.block.track === entry.id)}
+            {@const here = cursorPos?.row === row && cursorCell && stageW > 0 ? cursorCell : null}
+            {#if cells.length > 0 || here}
+              <div role="row" aria-rowindex={index + 1} aria-label={trackLabel(entry, t)}>
+                {#if here}
+                  <div
+                    class="item cursor"
+                    role="gridcell"
+                    tabindex={cursorTab ? 0 : -1}
+                    aria-selected="false"
+                    aria-label={cursorText}
+                    data-cursor=""
+                    data-testid="arr-cursor"
+                    data-row={cursorPos?.row}
+                    data-tick={cursorPos?.tick}
+                    style:left="{here.left}px"
+                    style:top="{here.top - RULER_HEIGHT}px"
+                    style:width="{here.width}px"
+                    style:height="{here.height}px"
+                  ></div>
+                {/if}
+                {#each cells as cell (cell.block.id)}
+                  <div
+                    class="item"
+                    role="gridcell"
+                    tabindex={cell.block.id === tabId && !cursorTab ? 0 : -1}
+                    aria-selected={selectedIds.has(cell.block.id)}
+                    aria-label={clipText(cell.block)}
+                    data-block={cell.block.id}
+                    data-testid="arr-item"
+                    style:left="{cell.left}px"
+                    style:top="{cell.top - RULER_HEIGHT}px"
+                    style:width="{cell.width}px"
+                    style:height="{cell.height}px"
+                  ></div>
+                {/each}
+              </div>
+            {/if}
           {/if}
         {/each}
       </div>
@@ -2514,16 +3297,27 @@
           <ValueField
             anchor={editAnchor}
             initial={(() => {
+              if (editing.fresh) return editing.initial ?? ''
               const ref = laneRefs.get(editing.lane)
               const point = ref ? pointAtTick(pointsOf(ref.info.lane), editing.tick) : null
               return ref && point ? ref.info.axis.format(point.value) : ''
             })()}
             label={t('automation.pointField')}
+            fresh={editing.fresh === true}
             commit={commitValue}
             onclose={(refocus) => {
+              const closed = editing
+              const edited = editedTick
+              editedTick = null
               editing = null
               editAnchor = undefined
-              if (refocus) focusGrid()
+              if (!refocus || !closed) return
+              // Opened from the keyboard (a lane's head, a point): the point it made or changed takes the keyboard, else what opened it.
+              if (closed.back !== undefined) {
+                if (edited !== null && hasPoint(closed.lane, edited)) void focusPointCell(closed.lane, edited)
+                else if (closed.back?.isConnected) closed.back.focus()
+                else focusGrid()
+              } else focusGrid()
             }}
           />
         {/if}
@@ -2567,6 +3361,18 @@
   </div>
 </div>
 
+<RampDialog
+  open={ramping !== null && rampRef !== undefined}
+  title={rampRef?.info.title ?? ''}
+  from={ramping && rampRef ? t('automation.rampFrom', { value: rampRef.info.axis.format(ramping.from), at: atText(ramping.head) }) : ''}
+  axis={rampRef?.info.axis ?? null}
+  {signature}
+  headTick={ramping?.head ?? 0}
+  initialPosition={ramping ? String(Math.floor(ramping.head / bar) + 2) : ''}
+  initialShape={rampShape}
+  onsubmit={submitRamp}
+  onclose={closeRamp}
+/>
 <BarDialog
   open={repeating !== null}
   name="repeat"
@@ -2581,6 +3387,23 @@
   onsubmit={repeatUpTo}
   onclose={() => {
     repeating = null
+    giveFocusBack()
+  }}
+/>
+<BarDialog
+  open={lengthening !== null}
+  name="lengthen"
+  title={t('arrangement.lengthenTitle')}
+  label={t('arrangement.lengthenLabel', { min: lengthening?.min ?? 1 })}
+  invalid={t('arrangement.lengthenInvalid', { min: lengthening?.min ?? 1, max: MAX_GOTO_BAR })}
+  go={t('arrangement.lengthenGo')}
+  cancel={t('arrangement.repeatCancel')}
+  initial={lengthening?.min ?? 1}
+  min={lengthening?.min ?? 1}
+  max={MAX_GOTO_BAR}
+  onsubmit={lengthenTo}
+  onclose={() => {
+    lengthening = null
     giveFocusBack()
   }}
 />
@@ -2860,6 +3683,43 @@
     height: 14px;
     pointer-events: none;
   }
+  .key-changes {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 14px;
+    pointer-events: none;
+  }
+  .key-change {
+    position: absolute;
+    top: 0;
+    max-width: 120px;
+    height: 14px;
+    padding: 0 4px 0 5px;
+    border: 0;
+    border-left: 2px solid var(--fk-accent);
+    border-radius: 0;
+    background: var(--fk-surface-2, var(--fk-bg));
+    color: var(--fk-text);
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 14px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    pointer-events: auto;
+    cursor: grab;
+    touch-action: none;
+  }
+  .key-change.dragging {
+    cursor: grabbing;
+    opacity: 0.8;
+  }
+  .key-change:focus-visible {
+    outline: 2px solid var(--fk-accent);
+    outline-offset: 1px;
+  }
   .marker,
   .marker-field {
     position: absolute;
@@ -2913,6 +3773,10 @@
     outline-offset: 1px;
   }
   /* The free cursor (#494): seen only while it has the keyboard, as a tinted bar where Enter would create the clip. */
+  /* A point of a lane (#769): seen only while it has the keyboard, a ring around the point the canvas draws. */
+  .point {
+    border-radius: 50%;
+  }
   .cursor:focus-visible {
     background: var(--fk-accent-tint);
     outline-style: dashed;
@@ -3003,6 +3867,11 @@
     font-size: 11px;
     color: var(--fk-text-muted);
   }
+  .lane-name .count {
+    color: var(--fk-text-muted);
+    font-size: 11px;
+  }
+  .lane-tool,
   .lane-delete {
     flex: none;
     display: grid;

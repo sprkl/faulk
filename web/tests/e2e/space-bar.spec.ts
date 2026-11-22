@@ -35,16 +35,21 @@ async function playPauseResume(page: Page) {
   await transport(page, 'stopped')
 }
 
-for (const view of ['arrangement', 'grid', 'mixer']) {
-  test(`after a mouse click on the ${view} tab, Space plays and pauses`, async ({ page }) => {
-    const { errors } = watch(page)
-    await start(page)
-    await page.getByTestId(`nav-${view}`).click()
-    await expect(page.getByTestId('view')).toHaveAttribute('data-view', view)
-    await playPauseResume(page)
-    expect(errors).toEqual([])
-  })
-}
+// One boot for the three tabs (#848): back to the start between them, so each view's run starts from 0 as on a fresh page.
+test('after a mouse click on the arrangement, grid or mixer tab, Space plays and pauses', async ({ page }) => {
+  const { errors } = watch(page)
+  await start(page)
+  for (const view of ['arrangement', 'grid', 'mixer']) {
+    await test.step(view, async () => {
+      await page.getByTestId('transport-rewind').click()
+      await expect.poll(() => tick(page)).toBe(0)
+      await page.getByTestId(`nav-${view}`).click()
+      await expect(page.getByTestId('view')).toHaveAttribute('data-view', view)
+      await playPauseResume(page)
+    })
+  }
+  expect(errors).toEqual([])
+})
 
 test('after a mouse click on an arrangement track header, Space plays and pauses', async ({ page }) => {
   const { errors } = watch(page)
@@ -53,6 +58,40 @@ test('after a mouse click on an arrangement track header, Space plays and pauses
   await page.getByTestId('arr-track').first().click()
   await expect(page.getByTestId('arr-track').first()).toBeFocused()
   await playPauseResume(page)
+  expect(errors).toEqual([])
+})
+
+// #809: the first track is selected from the start, so the test above never clicks a row that is not selected yet.
+// Selecting a row, or pressing its M / S button, must not take Space from the transport either, right after the click.
+test('after a mouse click on an unselected track header, or its M / S button, Space plays and pauses', async ({ page }) => {
+  const { errors } = watch(page)
+  await start(page)
+  for (let i = 0; i < 2; i++) {
+    await page.getByTestId('add-track').click()
+    await page.getByTestId('add-track-menu').getByRole('menuitem', { name: 'Drums', exact: true }).click()
+  }
+  await page.getByTestId('nav-arrangement').click()
+  await expect(page.getByTestId('arr-track')).toHaveCount(3)
+  const clicks: Record<string, () => Promise<void>> = {
+    'second header': () => page.getByTestId('arr-track').nth(1).click(),
+    'third header': () => page.getByTestId('arr-track').nth(2).click(),
+    'first header again': () => page.getByTestId('arr-track').first().click(),
+    'mute of the second row': () => page.getByTestId('arr-mute').nth(1).click(),
+    'solo of the third row': () => page.getByTestId('arr-solo').nth(2).click(),
+  }
+  for (const [name, click] of Object.entries(clicks)) {
+    await test.step(name, async () => {
+      await page.getByTestId('transport-rewind').click()
+      await expect.poll(() => tick(page)).toBe(0)
+      await click()
+      // No wait between the click and the key: a press right after the click is the user's case.
+      await page.keyboard.press('Space')
+      await transport(page, 'playing')
+      await expect.poll(() => tick(page)).toBeGreaterThan(0)
+      await page.keyboard.press('Space')
+      await transport(page, 'stopped')
+    })
+  }
   expect(errors).toEqual([])
 })
 

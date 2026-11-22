@@ -2,11 +2,12 @@
   /**
    * The browser of instruments and effects, from the device descriptors (`DEVICES`): a new device
    * is listed with no change here. An instrument replaces the track's instrument
-   * (`track.set_instrument`); an effect is added at the end of the chain (`device.insert`).
+   * (`track.set_instrument`); an effect is added at the end of the chain (`device.insert`), a MIDI effect (#219) after the
+   * track's other MIDI effects, before its instrument (MIDI tracks only).
    */
-  import { effectDescriptors, instrumentDescriptors, type DeviceDescriptor } from '../../lib/devices'
+  import { effectDescriptors, instrumentDescriptors, midiEffectDescriptors, type DeviceDescriptor } from '../../lib/devices'
   import { setInstrument } from '../../lib/device-commands'
-  import { addEffectCommand, addMasterEffectCommand, type ChainEntry } from '../../lib/project/chain'
+  import { addEffectCommand, addMasterEffectCommand, addMidiEffectCommand, instrumentOf, type ChainEntry } from '../../lib/project/chain'
   import { useStores } from '../../lib/stores'
 
   let {
@@ -32,11 +33,12 @@
 
   const instruments = $derived(instrumentDescriptors(descriptors))
   const effects = $derived(effectDescriptors(descriptors))
-  const current = $derived(chain.find((e) => e.effectIndex === null)?.kind ?? null)
+  const midiEffects = $derived(midiEffectDescriptors(descriptors))
+  const current = $derived(instrumentOf(chain)?.kind ?? null)
 
   // A new instrument takes the automation lanes of the old one with it (`track.set_instrument`; undo brings them back): the warning is
   // shown before the swap, and what it took after it, whoever swapped (a click here, an agent, a redo): the project store notices it.
-  const instrumentId = $derived(chain.find((e) => e.effectIndex === null)?.id ?? null)
+  const instrumentId = $derived(instrumentOf(chain)?.id ?? null)
   const lanesOnInstrument = $derived.by(() => {
     const lanes = project.tracks.find((e) => e.id === track)?.track.automation ?? {}
     return Object.values(lanes).filter((lane) => lane && 'device' in lane.target && lane.target.device.device === instrumentId).length
@@ -79,6 +81,22 @@
       {t('automation.instrumentLanesRemoved', { n: taken.n })}
       <button type="button" class="dismiss" onclick={() => (dismissed = taken)}>{t('automation.dismiss')}</button>
     </p>
+  {/if}
+  {#if !master && midi && midiEffects.length > 0}
+    <h3 class="label">{t('devices.midiEffects')}</h3>
+    <ul>
+      {#each midiEffects as d (d.kind)}
+        <li>
+          <button
+            aria-label={t('devices.add', { name: d.name })}
+            title={t('devices.add', { name: d.name })}
+            data-testid="browse-midi-effect"
+            data-kind={d.kind}
+            onclick={() => dispatcher.run(addMidiEffectCommand(track, d.kind, chain))}>{d.name}</button
+          >
+        </li>
+      {/each}
+    </ul>
   {/if}
   <h3 class="label">{t('devices.effects')}</h3>
   {#if effects.length === 0}

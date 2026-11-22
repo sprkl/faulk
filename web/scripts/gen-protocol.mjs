@@ -5,6 +5,7 @@ import { execFileSync } from 'node:child_process'
 import { writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { compile } from 'json-schema-to-typescript'
+import { commandCatalog } from './command-catalog.mjs'
 import { mergeRoots } from './schema-merge.mjs'
 import { checkSchemaSize } from './schema-size.mjs'
 
@@ -59,12 +60,26 @@ const parts = [
   `export const PARAM_IDS = ${JSON.stringify(bundle.param_ids)} as const`,
   '/** The stable `code`s of the `error` messages of the helper the page acts on (`protocol::errors`). */',
   `export const ERROR_CODES = ${JSON.stringify(bundle.error_codes)} as const`,
+  '/** The stable `code`s of `export.failed` (#319, `protocol::errors::EXPORT_*`). */',
+  `export const EXPORT_ERROR_CODES = ${JSON.stringify(bundle.export_error_codes)} as const`,
+  '/** The most bytes the three streams of an `export.start` hold together (`protocol::MAX_EXPORT_STREAM_BYTES`, #319): a larger job renders in the page. */',
+  `export const MAX_EXPORT_STREAM_BYTES = ${bundle.max_export_stream_bytes}`,
+  "/** The helper's shortest time between two `export.progress` of one export, in ms (`protocol::EXPORT_PROGRESS_MS`, #319): it says one at least this often while it renders and writes. */",
+  `export const EXPORT_PROGRESS_MS = ${bundle.export_progress_ms}`,
+  "/** The helper's rule for an export's file name (#319): its most UTF-8 bytes before `.wav`, and the Windows device names it refuses. */",
+  `export const EXPORT_NAME = ${JSON.stringify(bundle.export_name)} as const`,
+  "/** The stable `code`s of `import.failed` (#778, `protocol::errors::IMPORT_*`); `decode_prefix` heads the decoder's own (`import.too_large`...). */",
+  `export const IMPORT_ERROR_CODES = ${JSON.stringify(bundle.import_error_codes)} as const`,
+  "/** The helper's shortest time between two `import.progress` of one import, in ms (`protocol::IMPORT_PROGRESS_MS`, #778): it says one at least this often while it imports. */",
+  `export const IMPORT_PROGRESS_MS = ${bundle.import_progress_ms}`,
   '/** The longest engine stream the page sends the helper in one binary frame (`protocol::MAX_STREAM_BYTES`, BO-1). */',
   `export const MAX_STREAM_BYTES = ${bundle.max_stream_bytes}`,
   '/** The close code of a control link the helper pushed out for newer ones (`protocol::CONTROL_PUSHED_OUT`, #608): not tried again. */',
   `export const CONTROL_PUSHED_OUT = ${bundle.control_pushed_out}`,
   "/** How long the page waits for the user's answer to an agent's destructive call, in ms (`protocol::AGENT_CONFIRM_MS`, AG-4). */",
   `export const AGENT_CONFIRM_MS = ${bundle.agent_confirm_ms}`,
+  '/** The largest audio file the page downloads for `clip.import_audio_url`, in bytes (`commands::clip::MAX_AUDIO_URL_BYTES`, #664). */',
+  `export const MAX_AUDIO_URL_BYTES = ${bundle.max_audio_url_bytes}`,
   "/** The `x-destructive` commands, from the catalog: an agent's call of one waits for the user's confirmation (AG-4). */",
   `export const DESTRUCTIVE_COMMANDS: readonly string[] = ${JSON.stringify(bundle.destructive_commands)}`,
   `export const PARAM_DEFAULTS = ${JSON.stringify(bundle.param_defaults)} as const`,
@@ -72,6 +87,12 @@ const parts = [
   `export const FADER_TAPER = ${JSON.stringify(bundle.fader_taper)} as const`,
   '/** The scales of the project (#695): the degrees of each one in semitones above its root, rising, in the order to list them (`project::ScaleMode`). */',
   `export const SCALE_INTERVALS = ${JSON.stringify(bundle.scale_intervals)} as const`,
+  "/** One field of a command's input as the command palette asks for it (#108, `scripts/command-catalog.mjs`). */",
+  'export interface CommandField { name: string; required: boolean; kind: "string" | "integer" | "number" | "boolean" | "enum" | "json"; ref?: string; nullable?: boolean; options?: readonly string[] }',
+  "/** A command the palette lists (#108): every command of the catalogue except the queries, in the catalogue's order. */",
+  'export interface CatalogEntry { name: string; kind: "edit" | "live" | "setting"; summary: string; destructive?: true; fields: readonly CommandField[] }',
+  '/** The commands a user can run, from the catalogue (#108): the command palette lists them and asks for their input. */',
+  `export const COMMAND_CATALOG: readonly CatalogEntry[] = ${JSON.stringify(commandCatalog(bundle.command.catalog))}`,
   '/** A parameter id of the built-in synth, as `device.set_param` takes it. */',
   'export type SynthParam = keyof typeof PARAM_IDS',
   "/** The ids of the default project's synth track and device (`commands::engine_msgs::single_synth`), and its device kind. */",

@@ -6,12 +6,18 @@
 // the click that opened the dialog, so it comes before the render), moves the Worker's bytes into
 // the file as they are made, and shows progress. Cancelling terminates the Worker and drops the
 // file. A browser without the File System Access API gets a download at the end.
-import type { Command } from '../generated/protocol'
+//
+// In Boost (#319), once the helper has the project's folder open, the helper renders the same job natively and
+// writes the file into that folder (`exports/<name>.wav`): no file dialog, the page sends the job and shows the
+// helper's progress. A job too large to send, or no folder the helper holds, renders in the page as in Web mode.
+import type { HelperExportMessage } from '../engine/engine'
+import { EXPORT_ERROR_CODES, EXPORT_PROGRESS_MS, MAX_EXPORT_STREAM_BYTES, type Command } from '../generated/protocol'
 import type { MessageKey } from '../i18n'
 import { exportAudio } from '../project-commands'
 import type { ExportJob, ExportRequest } from '../project/core'
 import type { FolderHandle } from '../storage/types'
 import type { FromExport, ToExport } from './export-render'
+import { helperFileName, toBase64, type HelperExportPort } from './helper-export'
 
 /** The settings the dialog offers. */
 export interface ExportChoices {
@@ -94,12 +100,21 @@ export interface ExportHost {
   analysisRunning(): boolean
   /** The names of these media (blob hashes) as the project calls them; a hash it does not know stays as it is. */
   mediaNames(hashes: string[]): string[]
+  /**
+   * The helper's export (#319): in Boost, with a helper that exports and holds the project's folder open, else
+   * `null` (the page renders and the browser asks where the file goes).
+   */
+  helperExport(): HelperExportPort | null
+  /** The project's id, which the helper checks against its folder's. */
+  projectId(): string
 }
 
 /** What a finished export tells the user. */
 export interface ExportResult {
+  /** The file's name; for `folder`, its path in the project's folder (`exports/<name>.wav`). */
   name: string
-  kind: 'file' | 'download'
+  /** `folder`: written by the helper into the project's folder (Boost, #319). */
+  kind: 'file' | 'download' | 'folder'
   bytes: number
   seconds: number
   /** The highest sample, in dBFS (`-Infinity` for silence). */
@@ -175,6 +190,8 @@ export class AudioExport {
   private writing: Promise<void> = Promise.resolve()
   /** Counts runs, so a late message of a cancelled one never reaches the next. */
   private run = 0
+  /** The helper's export under way (#319): its port, its number, and the end of its listening. */
+  private helper: { port: HelperExportPort; id: number; unlisten: () => void } | null = null
 
   constructor(
     private readonly host: ExportHost,
@@ -184,6 +201,11 @@ export class AudioExport {
   /** Whether the browser asks where the file goes (else it goes to the downloads). */
   get canChoose(): boolean {
     return this.deps.canChoose
+  }
+
+  /** Whether the helper writes the file into the project's `exports/` folder (Boost, #319). */
+  get inFolder(): boolean {
+    return this.host.helperExport() !== null
   }
 
   get hasContent(): boolean {
@@ -271,6 +293,12 @@ export class AudioExport {
     this.run++
     this.worker?.terminate()
     this.worker = null
+    const helper = this.helper
+    this.helper = null
+    if (helper) {
+      helper.unlisten()
+      helper.port.cancel(helper.id)
+    }
     const sink = this.sink
     this.sink = null
     if (sink) void this.writing.then(() => sink.abort()).catch(() => undefined)
@@ -326,6 +354,9 @@ export class AudioExport {
       const tooLong = job.status === 'refused' && job.error.code === 'limit'
       return this.fail(job.status === 'refused' ? (tooLong ? 'export.tooLong' : 'export.refused') : 'export.failed', job)
     }
+    // Boost, the folder open in the helper, a job small enough to send: the helper renders and writes (#319).
+    const port = this.host.helperExport()
+    if (port && job.setup.length + job.start.length + job.stop.length <= MAX_EXPORT_STREAM_BYTES) return this.inHelper(run, job, port)
     // Without a file dialog the whole file waits in memory until the end: a long one does not fit.
     const frameBytes = (2 * BITS[this.choices.bitDepth]) / 8
     if (!this.deps.canChoose && job.plan.body_frames * frameBytes > MAX_DOWNLOAD_BYTES) return this.fail('export.tooBig')
@@ -432,6 +463,107 @@ export class AudioExport {
       start,
       stop,
     ])
+  }
+
+  /** The helper renders `job` and writes its file into the project's folder (#319); the dialog shows its progress. */
+  private inHelper(run: number, job: Extract<ExportJob, { status: 'ready' }>, port: HelperExportPort) {
+    this.error = null
+    this.result = null
+    this.fraction = 0
+    this.tail = false
+    this.phase = 'rendering'
+    const started = this.deps.now()
+    const rate = this.choices.sampleRate
+    // A helper that stops answering (a message it dropped, a run that hangs) fails the export rather than leaving
+    // the dialog on its progress bar: a render says how far it is at least every `EXPORT_PROGRESS_MS`.
+    let watchdog: ReturnType<typeof setTimeout> | undefined
+    const arm = () => {
+      clearTimeout(watchdog)
+      watchdog = setTimeout(() => {
+        if (run === this.run) this.fail('export.helperSilent', 'the helper said nothing of its export')
+      }, HELPER_SILENCE_MS)
+    }
+    const stopListening = () => {
+      clearTimeout(watchdog)
+      unlisten()
+    }
+    const unlisten = port.listen((message: HelperExportMessage | null) => {
+      if (run !== this.run) return
+      if (message === null) {
+        // The session is gone, and its export with it (the helper cancels the export of a page that left).
+        stopListening()
+        this.helper = null
+        return this.fail('export.helperLost')
+      }
+      if (message.id !== run) return
+      arm()
+      if (message.type === 'export.progress') {
+        this.fraction = Math.min(1, message.rendered / Math.max(1, message.body))
+        this.tail = message.tail
+      } else if (message.type === 'export.done') {
+        stopListening()
+        this.helper = null
+        this.fraction = 1
+        this.result = {
+          name: message.path,
+          kind: 'folder',
+          bytes: message.bytes,
+          seconds: message.written / rate,
+          peakDb: message.peak > 0 ? 20 * Math.log10(message.peak) : -Infinity,
+          clipped: message.clipped,
+          reductionDb: message.reduction > 0 ? Math.min(-20 * Math.log10(Math.max(1 - message.reduction, 1e-9)), MAX_REPORTED_REDUCTION_DB) : 0,
+          silencedFrames: message.silenced,
+          tailCut: message.tail_cut,
+          missing: this.host.mediaNames(message.missing),
+          renderMs: this.deps.now() - started,
+        }
+        this.phase = 'done'
+      } else {
+        // It ended on its own: nothing to cancel.
+        stopListening()
+        this.helper = null
+        this.fail(helperFailure(message.code), `${message.code}: ${message.message}`)
+      }
+    })
+    this.helper = { port, id: run, unlisten: stopListening }
+    arm()
+    try {
+      port.start({
+        id: run,
+        project: this.host.projectId(),
+        name: helperFileName(this.choices.fileName),
+        sample_rate: rate,
+        bits: BITS[this.choices.bitDepth],
+        body_frames: job.plan.body_frames,
+        setup: toBase64(job.setup),
+        start: toBase64(job.start),
+        stop: toBase64(job.stop),
+      })
+    } catch (error) {
+      // The message could not be made (memory): nothing reached the helper.
+      this.fail('export.failed', error)
+    }
+  }
+}
+
+/**
+ * How long the page waits for a word of the helper's export before it fails it, in ms (#319): 300 of the
+ * helper's progress periods, which it keeps through its render and its final write.
+ */
+export const HELPER_SILENCE_MS = 300 * EXPORT_PROGRESS_MS
+
+/** The message the dialog shows for the helper's `export.failed` code (#319). */
+export function helperFailure(code: string): MessageKey {
+  switch (code) {
+    case EXPORT_ERROR_CODES.no_folder:
+    case EXPORT_ERROR_CODES.folder_changed:
+      return 'export.folderChanged'
+    case EXPORT_ERROR_CODES.write:
+      return 'export.writeFailed'
+    case EXPORT_ERROR_CODES.busy:
+      return 'export.helperBusy'
+    default:
+      return 'export.failed'
   }
 }
 

@@ -35,12 +35,14 @@
 //! | `ControlMsg` | `RtMsg` |
 //! |---|---|
 //! | `Reset { epoch }` | `Reset`: a fresh engine state, the old one is one garbage item (its tracks first fade out in the graph and come back through the retire ring, MO-3) |
-//! | `SetTransport`, `SetMetronome`, `SetMaster` | the same, copied |
+//! | `SetTransport`, `SetMetronome`, `SetMaster`, `SetScale` | the same, copied |
+//! | `SetKeyChanges` | `SetKeyChanges`: the table built by `prepare` (`None` when empty); the old one is the garbage (#953) |
 //! | `TrackCreate` | `TrackPut`: the new track, and the grown track table when the slot is beyond it (a track it replaces fades out, then comes back through the retire ring, MO-3) |
 //! | `TrackRemove` | `TrackRemove`: the track owns its devices and tables; it fades out in the graph, then comes back through the retire ring (MO-3), not the garbage ring |
 //! | `TrackSetMix/Solo/Arm/Monitor`, `HoldMix`, `SelectTrack`, `DeviceSetEnabled`, `ParamSet` | the same, copied |
 //! | `DeviceInsert` | `DevicePut`: the device built by `prepare` with its initial state, and the grown device row |
 //! | `DeviceRemove` | `DeviceRemove` |
+//! | `DeviceMove` | `DeviceMove`: the device moved to its free slot, and the grown device row (#800) |
 //! | `ClipNotesUpload` (last chunk), `ClipAudioSet` | `ClipPut`: the whole clip, and the page or the grown directory of the clip table |
 //! | `AutomationLaneUpload` (last chunk) | `LanePut`, paged like the clips |
 //! | `TrackPlacementsUpload` (last chunk) | `PlacementsSet`: the whole arrangement of the track |
@@ -215,7 +217,7 @@ pub use codec::{
 pub const MSG_VERSION: u8 = 1;
 
 /// Version of the [`Feedback`] layout.
-pub const FEEDBACK_VERSION: u8 = 9;
+pub const FEEDBACK_VERSION: u8 = 11;
 
 /// Size of a [`Header`] in bytes.
 pub const HEADER_BYTES: usize = 16;
@@ -226,6 +228,8 @@ pub const MSG_ALIGN: usize = 4;
 /// The safety limits: very high, enforced by the project before a message is sent, never
 /// reached by a human, and sized together under the wasm32 cap (see the module doc).
 pub mod limits {
+    /// Key changes of a project (#953), the table the audio side reads.
+    pub const MAX_KEY_CHANGES: u32 = 256;
     /// Tracks in a project.
     pub const MAX_TRACKS: u32 = 4096;
     /// The largest shift of a take's notes (`ControlMsg::SetRecording`), in microseconds,
@@ -274,6 +278,13 @@ pub mod limits {
     pub const MAX_APPLY_PER_BLOCK: usize = 128;
     /// Largest render block, in frames (Web Audio allows up to 2048).
     pub const MAX_BLOCK_FRAMES: usize = 2048;
+    /// The longest delay the graph gives a track to align it with the others, and the
+    /// longest bypass line of a device, in frames (#749, `crate::graph` > Latency): 85 ms at
+    /// 192 kHz, 341 ms at 48 kHz (sixteen Ceilings at their longest look-ahead and 192 kHz). A
+    /// chain whose latency goes beyond is compensated up to it.
+    /// It sizes the graph's compensation ring once ([`crate::latency::Compensation`]), not a
+    /// buffer per track.
+    pub const MAX_COMPENSATION_FRAMES: u32 = 16_383;
     /// Initial size of the web module's linear memory, in 64 KiB pages (16 MiB).
     pub const WASM_INITIAL_PAGES: u32 = 256;
     /// The cap of a wasm32 linear memory: 65 536 pages of 64 KiB.
@@ -285,7 +296,8 @@ pub mod limits {
 /// Index of a track in the engine, assigned by the project.
 ///
 /// [`TrackSlot::MASTER`] is not a track: it addresses the master's chain of effects (#364) in
-/// the four device messages (`DeviceInsert`, `DeviceRemove`, `DeviceSetEnabled`, `ParamSet`),
+/// the five device messages (`DeviceInsert`, `DeviceRemove`, `DeviceMove`, `DeviceSetEnabled`,
+/// `ParamSet`),
 /// and the master's automation lanes (#378) in `AutomationLaneUpload`, and nowhere else. The project never assigns it (tracks stay below
 /// [`limits::MAX_TRACKS`]), so a message of a track that names it finds no track and is
 /// refused or skipped, as a slot nobody holds.
@@ -386,13 +398,18 @@ impl Default for Note {
     }
 }
 
-/// Shape of the transition after an automation point.
+/// Shape of the transition after an automation point (`crate::automation`, #881): the value
+/// held, or the straight line to the next point, as is or warped (`EaseIn` starts slowly and
+/// ends fast, `EaseOut` the other way round, `Smooth` is slow at both ends).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[repr(u8)]
 pub enum Curve {
     #[default]
     Step = 0,
     Linear = 1,
+    EaseIn = 2,
+    EaseOut = 3,
+    Smooth = 4,
 }
 
 /// A point of an automation lane; at most one per tick.
@@ -461,6 +478,20 @@ pub enum ControlMsg {
         tempo: Tempo,
         signature: TimeSignature,
         launch_quantize: Quantize,
+    },
+    /// The project's scale (#690), as a set of pitch classes (bit `c` for pitch class `c`, 0 =
+    /// C; bits above the twelfth ignored; 0: no scale). The MIDI effects that work "in the
+    /// scale" read it in `device::Transport::scale`. A `Reset` clears it.
+    SetScale {
+        pitch_classes: u16,
+    },
+    /// The project's key changes (#953), the whole list each time: `(tick, pitch classes)`
+    /// as `SetScale` takes them, strictly increasing in tick, after tick 0, at most
+    /// [`limits::MAX_KEY_CHANGES`]. From each tick the scale replaces the one before (the
+    /// starting one is `SetScale`'s); the MIDI effects read the one in force at the played
+    /// position (`device::Transport::scale_at`; while the transport is stopped, at the playhead). An empty list: none. A `Reset` clears it.
+    SetKeyChanges {
+        changes: Vec<(Tick, u16)>,
     },
     /// Metronome (TR-2): on or off, its level (a linear gain, 1.0 the reference level of the
     /// click, 0 to 4; the project's `gain_db` is converted by the sender), bars of count-in
@@ -535,6 +566,19 @@ pub enum ControlMsg {
         track: TrackSlot,
         device: DeviceSlot,
     },
+    /// Moves the device in `from` to the free slot `to` without building it again (#800).
+    /// The instance keeps its state (tails, envelopes, filter states, its fade and its enabled
+    /// flag), so a device that shifts in its chain when another is inserted or removed in
+    /// front of it goes on sounding. Nothing is built, dropped or faded. `from` must hold a
+    /// device and `to` must be free. Only an audio effect moves: a MIDI effect (its output is
+    /// sized from its place, #219) and an instrument (it plays first after the MIDI effects)
+    /// are refused ([`MsgError::BadPayload`], as an occupied `to` is). The devices removed
+    /// around it keep their place in the chain it left ([`crate::graph`] > Device fades).
+    DeviceMove {
+        track: TrackSlot,
+        from: DeviceSlot,
+        to: DeviceSlot,
+    },
     DeviceSetEnabled {
         track: TrackSlot,
         device: DeviceSlot,
@@ -546,6 +590,17 @@ pub enum ControlMsg {
         device: DeviceSlot,
         param: ParamId,
         value: f32,
+    },
+    /// The track a device's detection listens to (#952, a sidechain), `None` for its own
+    /// track. Only a device of a track's chain whose descriptor declares
+    /// [`crate::device::DeviceDescriptor::sidechain`] takes it (anything else is refused with
+    /// [`MsgError::BadPayload`]). The source need not exist: a slot without a track gives
+    /// silence; a source equal to the device's own track is its own track. A device built by
+    /// a `DeviceInsert` starts with none ([`crate::graph`] > Sidechain).
+    DeviceSidechain {
+        track: TrackSlot,
+        device: DeviceSlot,
+        source: Option<TrackSlot>,
     },
     // MIDI clips
     /// The notes of a clip, in chunks: `first` is the index of `notes[0]` among `total`.
@@ -688,6 +743,8 @@ pub enum Tag {
     SetTransport = 1,
     SetMetronome = 2,
     SetMaster = 3,
+    SetScale = 4,
+    SetKeyChanges = 5,
     TrackCreate = 10,
     TrackRemove = 11,
     TrackSetMix = 12,
@@ -700,6 +757,8 @@ pub enum Tag {
     DeviceRemove = 21,
     DeviceSetEnabled = 22,
     ParamSet = 23,
+    DeviceMove = 24,
+    DeviceSidechain = 25,
     ClipNotesUpload = 30,
     ClipRemove = 31,
     AudioSourceDeclare = 40,
@@ -728,11 +787,13 @@ pub enum Tag {
 
 impl Tag {
     /// Every tag, in declaration order (for exhaustive tests and generated tables).
-    pub const ALL: [Tag; 40] = [
+    pub const ALL: [Tag; 44] = [
         Tag::Reset,
         Tag::SetTransport,
         Tag::SetMetronome,
         Tag::SetMaster,
+        Tag::SetScale,
+        Tag::SetKeyChanges,
         Tag::TrackCreate,
         Tag::TrackRemove,
         Tag::TrackSetMix,
@@ -745,6 +806,8 @@ impl Tag {
         Tag::DeviceRemove,
         Tag::DeviceSetEnabled,
         Tag::ParamSet,
+        Tag::DeviceMove,
+        Tag::DeviceSidechain,
         Tag::ClipNotesUpload,
         Tag::ClipRemove,
         Tag::AudioSourceDeclare,
@@ -791,6 +854,8 @@ impl ControlMsg {
             ControlMsg::SetTransport { .. } => Tag::SetTransport,
             ControlMsg::SetMetronome { .. } => Tag::SetMetronome,
             ControlMsg::SetMaster { .. } => Tag::SetMaster,
+            ControlMsg::SetScale { .. } => Tag::SetScale,
+            ControlMsg::SetKeyChanges { .. } => Tag::SetKeyChanges,
             ControlMsg::TrackCreate { .. } => Tag::TrackCreate,
             ControlMsg::TrackRemove { .. } => Tag::TrackRemove,
             ControlMsg::TrackSetMix { .. } => Tag::TrackSetMix,
@@ -803,6 +868,8 @@ impl ControlMsg {
             ControlMsg::DeviceRemove { .. } => Tag::DeviceRemove,
             ControlMsg::DeviceSetEnabled { .. } => Tag::DeviceSetEnabled,
             ControlMsg::ParamSet { .. } => Tag::ParamSet,
+            ControlMsg::DeviceMove { .. } => Tag::DeviceMove,
+            ControlMsg::DeviceSidechain { .. } => Tag::DeviceSidechain,
             ControlMsg::ClipNotesUpload { .. } => Tag::ClipNotesUpload,
             ControlMsg::ClipRemove { .. } => Tag::ClipRemove,
             ControlMsg::AudioSourceDeclare { .. } => Tag::AudioSourceDeclare,
@@ -916,12 +983,31 @@ impl ControlMsg {
                 ..
             } => {
                 // The master's chain is addressed by `TrackSlot::MASTER`, in these four
-                // messages (and `HoldMix`, above) only: any other message of a track refuses it as a slot past
+                // messages, `DeviceMove` and `HoldMix` only: any other message of a track refuses it as a slot past
                 // the limit.
                 if !t.is_master() {
                     track(t)?;
                 }
                 device(d)
+            }
+            ControlMsg::DeviceMove {
+                track: t, from, to, ..
+            } => {
+                if !t.is_master() {
+                    track(t)?;
+                }
+                device(from)?;
+                device(to)
+            }
+            // A track's chain only: the master's is refused as a slot past the limit.
+            ControlMsg::DeviceSidechain {
+                track: t,
+                device: d,
+                source,
+            } => {
+                track(t)?;
+                device(d)?;
+                source.as_ref().map_or(Ok(()), track)
             }
             ControlMsg::ClipNotesUpload {
                 clip: c,
@@ -1003,10 +1089,16 @@ impl ControlMsg {
                 scene(s)
             }
             ControlMsg::LaunchScene { scene: s } => scene(s),
+            ControlMsg::SetKeyChanges { changes } => below(
+                "key changes",
+                changes.len() as u64,
+                u64::from(MAX_KEY_CHANGES) + 1,
+            ),
             ControlMsg::Reset { .. }
             | ControlMsg::SetTransport { .. }
             | ControlMsg::SetMetronome { .. }
             | ControlMsg::SetMaster { .. }
+            | ControlMsg::SetScale { .. }
             | ControlMsg::StopAll
             | ControlMsg::AllSoundOff
             | ControlMsg::BackToArrangement
@@ -1428,6 +1520,8 @@ pub enum Garbage {
     Placements(Table<Placement>),
     /// A replaced (grown) scene row of a track.
     Scenes(Slots<ClipSlot>),
+    /// The replaced table of key changes (#953), if there was one.
+    KeyChanges(Option<Box<crate::keymap::KeyMap>>),
 }
 
 /// Transport order carried to the audio thread.
@@ -1466,6 +1560,9 @@ pub enum RtMsg {
         signature: TimeSignature,
         launch_quantize: Quantize,
     },
+    SetScale(crate::device::PitchSet),
+    /// The key changes (#953); `None` for none. The old table goes to [`Garbage::KeyChanges`].
+    SetKeyChanges(Option<Box<crate::keymap::KeyMap>>),
     SetMetronome {
         enabled: bool,
         volume: f32,
@@ -1514,10 +1611,35 @@ pub enum RtMsg {
         track: TrackSlot,
         device: DeviceSlot,
     },
+    /// The device of `from` moved to the free slot `to` (#800), after the row is grown to
+    /// `grown` when `to` is beyond it: no device is built, dropped or faded, it keeps its
+    /// state. The automation lanes name a slot and stay: the project uploads the moved
+    /// device's lanes again. Anything else kept per slot outside [`DeviceEntry`] (none today)
+    /// must move with it in the same step.
+    DeviceMove {
+        track: TrackSlot,
+        from: DeviceSlot,
+        to: DeviceSlot,
+        grown: Option<Slots<Box<DeviceEntry>>>,
+        /// The same device built again (#800), when `to` is a slot a device with a latency
+        /// line left: if that device still holds the slot's timing (#761), `apply` puts this
+        /// one there instead (held, then faded in, as a device put there is) and the moved one
+        /// leaves from `from` (the values waiting for `from` in the lines before it are
+        /// forgotten, as for a removal: the project uploads the moved device's lanes again);
+        /// otherwise it goes to the garbage.
+        spare: Option<Box<DeviceEntry>>,
+    },
     DeviceSetEnabled {
         track: TrackSlot,
         device: DeviceSlot,
         enabled: bool,
+    },
+    /// The track a device's detection listens to (#952): `None` for its own, never the
+    /// device's own track.
+    DeviceSidechain {
+        track: TrackSlot,
+        device: DeviceSlot,
+        key: Option<TrackSlot>,
     },
     /// A parameter set by hand or by an agent: `Device::set_param`, which behaves as a
     /// value at offset 0 of the block (CT-5).
@@ -1711,7 +1833,28 @@ pub struct RecordedNote {
 }
 
 /// Size of the fixed part of a [`Feedback`] on the wire.
-pub const FEEDBACK_HEADER_BYTES: usize = 100;
+pub const FEEDBACK_HEADER_BYTES: usize = 112;
+
+/// Where the number of device readouts sits in a [`Feedback`] (#686, version 10): one `u32`.
+pub const FEEDBACK_READOUTS_OFFSET: usize = 100;
+
+/// Where the device latency sits in a [`Feedback`] (#749, version 10): one `u32`, followed by
+/// the spectra count (version 11). One constant, so that the field moves in one place.
+pub const FEEDBACK_LATENCY_OFFSET: usize = 104;
+
+/// The bit of the latency word that says the compensation is capped (#749): a track needs a
+/// longer delay than [`limits::MAX_COMPENSATION_FRAMES`]. The other bits are the frames.
+pub const FEEDBACK_LATENCY_CAPPED: u32 = 1 << 31;
+
+/// The latency word of a report: `frames` (saturated under [`FEEDBACK_LATENCY_CAPPED`]) and
+/// the capped bit.
+pub fn latency_word(frames: u32, capped: bool) -> u32 {
+    frames.min(FEEDBACK_LATENCY_CAPPED - 1) | if capped { FEEDBACK_LATENCY_CAPPED } else { 0 }
+}
+
+/// Where the number of spectra sits in a [`Feedback`] (#156, version 11): one `u32`, the last
+/// word of the header.
+pub const FEEDBACK_SPECTRA_OFFSET: usize = 108;
 
 /// What the engine reports to the page, about 30 times per second. Fixed little-endian
 /// layout, written by the audio thread into a region sized by [`Feedback::size_for`]:
@@ -1760,11 +1903,20 @@ pub const FEEDBACK_HEADER_BYTES: usize = 100;
 ///     92    8 host_frame (u64: the host's frame at the report's playhead, the clock the host
 ///             gave `Engine::set_host_frame` (the web worklet's `currentFrame`) carried to the
 ///             sample the playhead (tick, frame above) sits at; a host that gives none (the
-///             helper) has the engine's own sample counter; last word of the header; version 9, #733).
+///             helper) has the engine's own sample counter; version 9, #733).
 ///             It keeps counting while the transport is stopped, where `playhead_frame` stops: `host_frame -
 ///             playhead_frame` is the host frame of position 0 only while the transport runs at one tempo,
 ///             with no loop wrap and no sample-rate change since the Play.
-///    100      TrackMeter × (tracks + 1) (20 bytes each: peak L, peak R, RMS L, RMS R, then the
+///    100    4 readouts (u32, the device readouts this report carries, at most
+///             MAX_READOUTS_PER_REPORT; [`FEEDBACK_READOUTS_OFFSET`]; version 10, #686)
+///    104    4 latency (u32: bits 0 to 30, latency_frames, the device latency of what is heard, in frames at
+///             the engine's rate: the largest chain latency of the tracks plus the master's, which the graph
+///             compensates (`crate::graph` > Latency), saturated at 2^31 - 1; bit 31 ([`FEEDBACK_LATENCY_CAPPED`]),
+///             latency_capped: a track needs more than the compensation's limit and is no longer aligned;
+///             [`FEEDBACK_LATENCY_OFFSET`]; version 10, #749)
+///    108    4 spectra (u32, at most `analysis::MAX_SPECTRA`: the spectra this report carries;
+///             [`FEEDBACK_SPECTRA_OFFSET`]; last word of the header; version 11, #156)
+///    112      TrackMeter × (tracks + 1) (20 bytes each: peak L, peak R, RMS L, RMS R, then the
 ///             largest gain reduction in decibels of the strip's devices over the period, version 4):
 ///             one per track slot below `tracks` (zeros for an empty slot; peak and RMS after the
 ///             track's fader), then the output's meter after the master (version 2); the master's
@@ -1773,6 +1925,17 @@ pub const FEEDBACK_HEADER_BYTES: usize = 100;
 ///             16 bytes; version 3)
 ///          then RecordedNote × recorded (track u32, pad u32, start i64, length i64,
 ///               pitch u8, velocity u8, pad ×6: 32 bytes on the wire)
+///          then DeviceReadout × readouts (track u32, u32::MAX for the master's chain; device
+///               slot u16; parameter id u16; value f32: 12 bytes; version 10): the live value
+///               of a parameter a device moves by itself (`Device::readout`) after the last
+///               block of the period, for each enabled device that reports one, in track
+///               slot then device slot order, the master's chain last; past
+///               MAX_READOUTS_PER_REPORT the rest is left out
+///          then Spectrum × spectra (track slot u32 (`TrackSlot::MASTER` for the master's
+///               chain), device slot u32, sample rate f32, then `analysis::BANDS` bands f32 in
+///               dBFS: 396 bytes; the
+///               spectrum of a device's last window, computed off the audio path one report
+///               earlier, `crate::analysis`; version 11, #156)
 /// ```
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Feedback {
@@ -1783,6 +1946,11 @@ pub struct Feedback {
     pub playhead_frame: Frame,
     /// The host's frame at the playhead (offset 92, version 9, #733).
     pub host_frame: u64,
+    /// The device latency of what is heard, in frames ([`FEEDBACK_LATENCY_OFFSET`], version 10,
+    /// #749).
+    pub latency_frames: u32,
+    /// The compensation is capped: a track is no longer aligned (bit 31 of the latency word).
+    pub latency_capped: bool,
     pub cpu_load: f32,
     /// The largest load of one peak window closed in the period (`crate::host`); with a
     /// coarse clock a period may close none and carry the last window, which can be under
@@ -1812,23 +1980,61 @@ pub struct Feedback {
     pub record_dropped: u32,
     /// The recorder captures: while it does, the take may still grow.
     pub record_capturing: bool,
+    /// The live values of the parameters devices move by themselves (#686).
+    pub readouts: Vec<DeviceReadout>,
+    /// The spectra of the analysed devices (#156, [`crate::analysis`]), at most
+    /// [`crate::analysis::MAX_SPECTRA`].
+    pub spectra: Vec<crate::analysis::Spectrum>,
 }
 
 impl Feedback {
-    /// Bytes of a report for `tracks` tracks, `active_clips` grid slots and `recorded` notes.
-    pub fn size_for(tracks: usize, active_clips: usize, recorded: usize) -> usize {
+    /// Bytes of a report for `tracks` tracks, `active_clips` grid slots, `recorded` notes,
+    /// `readouts` device readouts and `spectra` spectra.
+    pub fn size_for(
+        tracks: usize,
+        active_clips: usize,
+        recorded: usize,
+        readouts: usize,
+        spectra: usize,
+    ) -> usize {
         FEEDBACK_HEADER_BYTES
             + (tracks + 1) * TRACK_METER_BYTES
             + active_clips * ACTIVE_CLIP_BYTES
             + recorded * RECORDED_NOTE_WIRE_BYTES
+            + readouts * DEVICE_READOUT_BYTES
+            + spectra * crate::analysis::SPECTRUM_WIRE_BYTES
     }
 
     /// The region the audio side writes into: sized for the limits of the moment, resized
     /// by `prepare` when the track table grows.
     pub fn max_size_for(tracks: usize) -> usize {
-        Feedback::size_for(tracks, 2 * tracks, MAX_RECORDED_PER_REPORT)
+        Feedback::size_for(
+            tracks,
+            2 * tracks,
+            MAX_RECORDED_PER_REPORT,
+            MAX_READOUTS_PER_REPORT,
+            crate::analysis::MAX_SPECTRA,
+        )
     }
 }
+
+/// The live value of a parameter a device moves by itself (`Device::readout`, #686): the
+/// Filter's cutoff under its LFO and envelope.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DeviceReadout {
+    /// The device's track, [`TrackSlot::MASTER`] for the master's chain.
+    pub track: TrackSlot,
+    pub device: DeviceSlot,
+    pub param: ParamId,
+    /// In the parameter's unit.
+    pub value: f32,
+}
+
+/// Size of a [`DeviceReadout`] on the wire.
+pub const DEVICE_READOUT_BYTES: usize = 12;
+
+/// Most device readouts one report carries.
+pub const MAX_READOUTS_PER_REPORT: usize = 128;
 
 /// Size of a [`RecordedNote`] on the wire (padded).
 pub const RECORDED_NOTE_WIRE_BYTES: usize = 32;

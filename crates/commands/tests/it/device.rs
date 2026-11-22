@@ -19,7 +19,9 @@ use commands::{
 use std::collections::BTreeMap;
 
 use crate::device_examples;
-use device_examples::{EFFECT, chain, d, insert, insert_master, own_context, t};
+use device_examples::{
+    EFFECT, MIDI_EFFECT, chain, d, insert, insert_master, midi_chain, own_context, t,
+};
 
 fn refused(command: &Command, state: &State) -> CommandError {
     check_refusal(command, state, &context()).unwrap()
@@ -638,6 +640,325 @@ fn a_module_device_keeps_the_check_against_what_the_project_holds() {
     assert_eq!(code(&param(&c.a, "other", 1.0), &s), "not_found");
 }
 
+/// #157: each parameter the Compressor gained is set by its key through `device.set_param` as
+/// an agent sends it (JSON), described from the descriptor, sent to the engine by its id, and
+/// undone; a Compressor saved by the MVP (its five keys only) opens with the new keys at
+/// their neutral defaults, so the previous value is the default.
+#[test]
+fn the_compressor_s_new_parameters_are_set_by_key_sent_by_id_and_undone() {
+    use ::project::file::{MemFs, SaveOptions, SaveState, save};
+    use engine::devices::compressor as comp;
+    let c = chain();
+    let mut s = c.state.clone();
+    let out = go(
+        &mut s,
+        &d(device::Command::Insert {
+            track: Some(c.track.clone()),
+            master: false,
+            kind: "faulk.compressor".into(),
+            index: 0,
+        }),
+    );
+    let Output::Device(device::Output::Insert { device: fx }) = out.output else {
+        panic!()
+    };
+    let mvp = ["threshold", "ratio", "attack", "release", "makeup"];
+    s.project
+        .tracks
+        .get_mut(&c.track)
+        .unwrap()
+        .devices
+        .get_mut(&fx)
+        .unwrap()
+        .params
+        .retain(|k, _| mvp.contains(&k.as_str()));
+    // Saved as the MVP wrote it, then opened: the five keys come back with the new ones.
+    let mut fs = MemFs::new();
+    save(
+        &mut fs,
+        &s.project,
+        &mut SaveState::new(),
+        None,
+        &SaveOptions::default(),
+    )
+    .unwrap();
+    let mut ctx = context();
+    ctx.folder = Some(commands::contract::Folder::new("mvp", fs));
+    run(
+        &Command::Project(commands::project::Command::Open {
+            folder: "mvp".into(),
+        }),
+        &mut s,
+        &mut ctx,
+    )
+    .unwrap();
+    let opened = &s.project.tracks[&c.track].devices[&fx].params;
+    assert_eq!(opened.len(), comp::DESCRIPTOR.params.len());
+    for p in comp::DESCRIPTOR.params {
+        assert!(opened.contains_key(p.key), "{}", p.key);
+    }
+    let base = s.clone();
+    let added = [
+        ("knee", comp::KNEE, 12.0, comp::KNEE_DB as f64),
+        ("detection", comp::DETECTION, 1.0, 0.0),
+        ("release_mode", comp::RELEASE_MODE, 1.0, 0.0),
+        ("sidechain_hpf", comp::SIDECHAIN_HPF, 1.0, 0.0),
+        ("sidechain_freq", comp::SIDECHAIN_FREQ, 250.0, 100.0),
+        ("lookahead", comp::LOOKAHEAD, 0.005, 0.0),
+        ("mix", comp::MIX, 0.4, 1.0),
+    ];
+    // Every parameter of the descriptor is either the MVP's or one of these.
+    assert_eq!(comp::DESCRIPTOR.params.len(), mvp.len() + added.len());
+    for (key, id, value, default) in added {
+        let p = comp::DESCRIPTOR
+            .params
+            .iter()
+            .find(|p| p.key == key)
+            .unwrap();
+        assert_eq!((p.id.0, p.default), (id, default), "{key}");
+        assert!(!p.description.is_empty(), "{key}");
+        let command: Command = serde_json::from_value(serde_json::json!({
+            "type": "device.set_param", "device": fx.to_string(), "param": key, "value": value
+        }))
+        .unwrap_or_else(|e| panic!("{key}: {e}"));
+        check(&command, &base, &context()).unwrap();
+        // Through the engine sync, which gives the command its engine messages.
+        let mut synced = Synced::new(base.clone(), context(), 1);
+        synced.setup().unwrap();
+        let (out, bytes) = synced.run(&command).unwrap();
+        let mut h = synced.state.clone();
+        let mut messages = Vec::new();
+        let mut at = 0;
+        while at < bytes.len() {
+            use engine::msg::{HEADER_BYTES, Header};
+            let header = Header::decode(&bytes[at..], 1).unwrap();
+            let end = at + HEADER_BYTES + header.len as usize;
+            messages.push(ControlMsg::decode(&header, &bytes[at + HEADER_BYTES..end]).unwrap());
+            at += Header::frame_len(header.len);
+        }
+        assert_eq!(
+            out.output,
+            Output::Device(device::Output::SetParam {
+                previous: default,
+                value
+            }),
+            "{key}"
+        );
+        assert_eq!(h.project.tracks[&c.track].devices[&fx].params[key], value);
+        let sent: Vec<_> = messages
+            .iter()
+            .filter_map(|m| match m {
+                ControlMsg::ParamSet { param, value, .. } => Some((param.0, *value)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(sent, [(id, value as f32)], "{key}");
+        assert!(
+            matches!(out.undo, Undo::Inverse(_)),
+            "{key}: {:?}",
+            out.undo
+        );
+        run(&undo(), &mut h, &mut context()).unwrap();
+        assert_eq!(
+            h.project, base.project,
+            "{key}: the undo gives the MVP's device back"
+        );
+    }
+}
+
+/// #754: a serialized device that comes into the project through a restore (`device.restore`,
+/// `track.restore`, `track.restore_instrument`: the undo of a delete, a paste) is completed
+/// like one that comes through `project.open`: a Compressor of the MVP (its five keys) can
+/// set `knee` and `mix` afterwards, and the engine is given the same device as a complete one.
+#[test]
+fn a_restored_device_gets_the_parameters_its_snapshot_lacks() {
+    use engine::devices::compressor as comp;
+    let mvp = ["threshold", "ratio", "attack", "release", "makeup"];
+    let c = chain();
+    let mut s = c.state.clone();
+    let out = go(
+        &mut s,
+        &d(device::Command::Insert {
+            track: Some(c.track.clone()),
+            master: false,
+            kind: "faulk.compressor".into(),
+            index: 0,
+        }),
+    );
+    let Output::Device(device::Output::Insert { device: fx }) = out.output else {
+        panic!()
+    };
+    let complete = s.clone();
+    let old = {
+        let mut device = s.project.tracks[&c.track].devices[&fx].clone();
+        device.params.retain(|k, _| mvp.contains(&k.as_str()));
+        device
+    };
+    assert_eq!(old.params.len(), mvp.len());
+    // What the engine is given: the same messages as for the complete device.
+    let engine_of = |state: &State| format!("{:?}", snapshot(&state.project, &state.session).0);
+    let check_filled = |restored: &State, how: &str| {
+        let device = &restored.project.tracks[&c.track].devices[&fx];
+        assert_eq!(device.params.len(), comp::DESCRIPTOR.params.len(), "{how}");
+        assert_eq!(restored.project, complete.project, "{how}");
+        assert_eq!(engine_of(restored), engine_of(&complete), "{how}");
+        // The new parameters can be set from their defaults.
+        let mut h = restored.clone();
+        for (key, value, default) in [("knee", 12.0, comp::KNEE_DB as f64), ("mix", 0.4, 1.0)] {
+            let out = go(&mut h, &param(&fx, key, value));
+            assert_eq!(
+                out.output,
+                Output::Device(device::Output::SetParam {
+                    previous: default,
+                    value
+                }),
+                "{how}: {key}"
+            );
+        }
+    };
+    // device.restore
+    let mut by_device = s.clone();
+    go(&mut by_device, &remove(&fx));
+    go(
+        &mut by_device,
+        &d(device::Command::Restore {
+            track: Some(c.track.clone()),
+            master: false,
+            device: fx.clone(),
+            snapshot: old.clone(),
+            lanes: BTreeMap::new(),
+        }),
+    );
+    check_filled(&by_device, "device.restore");
+    // A lane on a parameter the snapshot lacks but the descriptor declares is accepted.
+    let mut with_lanes = s.clone();
+    go(&mut with_lanes, &remove(&fx));
+    let lane = AutomationLane {
+        target: AutomationTarget::Device {
+            device: fx.clone(),
+            param: "knee".into(),
+        },
+        points: BTreeMap::from([(
+            Tick(0),
+            AutomationPoint {
+                value: 12.0,
+                shape: Shape::Linear,
+            },
+        )]),
+    };
+    let lane_id = LaneId::generate(&mut ::project::IdGenerator::new(1_680_000_000_999, 9));
+    go(
+        &mut with_lanes,
+        &d(device::Command::Restore {
+            track: Some(c.track.clone()),
+            master: false,
+            device: fx.clone(),
+            snapshot: old.clone(),
+            lanes: BTreeMap::from([(lane_id.clone(), lane)]),
+        }),
+    );
+    assert!(
+        with_lanes.project.tracks[&c.track]
+            .automation
+            .contains_key(&lane_id)
+    );
+    // The master's chain takes the same path.
+    let mut on_master = c.state.clone();
+    let Output::Device(device::Output::Insert { device: mfx }) = go(
+        &mut on_master,
+        &d(device::Command::Insert {
+            track: None,
+            master: true,
+            kind: "faulk.compressor".into(),
+            index: 0,
+        }),
+    )
+    .output
+    else {
+        panic!()
+    };
+    let master_complete = on_master.project.master_devices[&mfx].clone();
+    let mut old_master = master_complete.clone();
+    old_master.params.retain(|k, _| mvp.contains(&k.as_str()));
+    go(&mut on_master, &remove(&mfx));
+    go(
+        &mut on_master,
+        &d(device::Command::Restore {
+            track: None,
+            master: true,
+            device: mfx.clone(),
+            snapshot: old_master,
+            lanes: BTreeMap::new(),
+        }),
+    );
+    assert_eq!(on_master.project.master_devices[&mfx], master_complete);
+    // track.restore
+    let mut by_track = s.clone();
+    let Undo::Inverse(inverse) = go(
+        &mut by_track,
+        &t(track::Command::Delete {
+            track: c.track.clone(),
+        }),
+    )
+    .undo
+    else {
+        panic!()
+    };
+    let Command::Track(track::Command::Restore {
+        track: id,
+        mut snapshot,
+        ..
+    }) = *inverse
+    else {
+        panic!()
+    };
+    *snapshot.devices.get_mut(&fx).unwrap() = old.clone();
+    go(
+        &mut by_track,
+        &t(track::Command::Restore {
+            track: id,
+            snapshot,
+            listeners: Vec::new(),
+        }),
+    );
+    check_filled(&by_track, "track.restore");
+    // track.restore_instrument: the instrument of a snapshot lacking all its parameters.
+    let mut swapped = c.state.clone();
+    let Undo::Inverse(inverse) = go(&mut swapped, &set_instrument(&c.track, "faulk.drums")).undo
+    else {
+        panic!()
+    };
+    let Command::Track(track::Command::RestoreInstrument {
+        track,
+        current,
+        device,
+        mut snapshot,
+        lanes,
+    }) = *inverse
+    else {
+        panic!()
+    };
+    let full = snapshot.params.clone();
+    assert!(!full.is_empty());
+    snapshot.params.clear();
+    go(
+        &mut swapped,
+        &t(track::Command::RestoreInstrument {
+            track: track.clone(),
+            current,
+            device: device.clone(),
+            snapshot,
+            lanes,
+        }),
+    );
+    let filled = &swapped.project.tracks[&track].devices[&device].params;
+    // The fixture's synth holds values that are not the defaults: the keys come back, at the descriptor's.
+    assert_eq!(
+        filled.keys().collect::<Vec<_>>(),
+        full.keys().collect::<Vec<_>>()
+    );
+}
+
 // ---------------------------------------------------------------- track.set_instrument
 
 #[test]
@@ -983,6 +1304,28 @@ impl Replay {
                         "{msg:?}: the slot is empty"
                     );
                 }
+                ControlMsg::DeviceMove { track, from, to } => {
+                    // The device keeps everything it holds. The engine refuses a move from
+                    // an empty slot, to an occupied one, or of a MIDI effect.
+                    assert!(
+                        !self.devices.contains_key(&(track.0, to.0)),
+                        "{msg:?}: the target is taken"
+                    );
+                    let moved = self
+                        .devices
+                        .remove(&(track.0, from.0))
+                        .unwrap_or_else(|| panic!("{msg:?}: the slot is empty"));
+                    let role = commands::device::registry()
+                        .iter()
+                        .find(|b| b.descriptor.kind_id.0 == moved.kind)
+                        .map(|b| b.descriptor.role);
+                    assert_ne!(
+                        role,
+                        Some(engine::device::DeviceRole::MidiEffect),
+                        "{msg:?}: a MIDI effect"
+                    );
+                    self.devices.insert((track.0, to.0), moved);
+                }
                 ControlMsg::DeviceSetEnabled {
                     track,
                     device,
@@ -1066,10 +1409,77 @@ fn kinds(msgs: &[ControlMsg]) -> Vec<&'static str> {
             ControlMsg::DeviceInsert { .. } => "insert",
             ControlMsg::DeviceRemove { .. } => "remove",
             ControlMsg::DeviceSetEnabled { .. } => "enabled",
+            ControlMsg::DeviceMove { .. } => "move",
             ControlMsg::AutomationLaneUpload { .. } => "lane",
             _ => "other",
         })
         .collect()
+}
+
+#[test]
+fn every_midi_effect_command_and_its_undo_leave_the_engine_as_a_snapshot_would() {
+    // #219: the MIDI effects take the first slots, the instrument and the audio effects the
+    // ones after; each change and its undo leave the engine as a snapshot of the project.
+    let m = midi_chain();
+    let c = &m.chain;
+    let (msgs, _) = snapshot(&c.state.project, &c.state.session);
+    let transpose = engine::device::testing::TRANSPOSE.kind_id;
+    let slots: Vec<u16> = msgs
+        .iter()
+        .filter_map(|msg| match msg {
+            ControlMsg::DeviceInsert {
+                track,
+                device,
+                kind,
+                ..
+            } if *kind == transpose && !track.is_master() => Some(device.0),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(slots, [0, 1]);
+    let mut w = World::new(c.state.clone());
+    let midi = |index| {
+        d(device::Command::Insert {
+            track: Some(c.track.clone()),
+            master: false,
+            kind: MIDI_EFFECT.into(),
+            index,
+        })
+    };
+    let commands = [
+        midi(0),
+        mv(&m.m2, 0),
+        bypass(&m.m1, true),
+        param(&m.m1, "semitones", 5.0),
+        remove(&m.m1),
+        set_instrument(&c.track, "faulk.drums"),
+        midi(u32::MAX),
+        bypass(&m.m1, false),
+    ];
+    let mut done = 0;
+    for command in &commands {
+        match w.s.run(command) {
+            Ok((outcome, _)) => {
+                w.replay.apply(&outcome.control);
+                w.check();
+                done += 1;
+            }
+            Err(commands::engine_msgs::SyncError::Refused(_)) => {}
+            Err(e) => panic!("{command:?}: {e:?}"),
+        }
+    }
+    assert_eq!(
+        done,
+        commands.len() - 1,
+        "only the bypass of the removed one is refused"
+    );
+    for _ in 0..done {
+        w.exec(&undo());
+    }
+    assert_eq!(w.s.state.project, c.state.project);
+    for _ in 0..done {
+        w.exec(&redo());
+    }
 }
 
 #[test]
@@ -1113,22 +1523,54 @@ fn every_chain_command_and_its_undo_leave_the_engine_as_a_snapshot_would() {
     }
 }
 
+/// The slots of the `DeviceMove`s of `msgs`, in order.
+fn moves(msgs: &[ControlMsg]) -> Vec<(u16, u16)> {
+    msgs.iter()
+        .filter_map(|m| match m {
+            ControlMsg::DeviceMove { from, to, .. } => Some((from.0, to.0)),
+            _ => None,
+        })
+        .collect()
+}
+
 #[test]
-fn a_device_that_keeps_its_place_is_not_touched_and_one_that_shifts_is_built_again() {
+fn a_device_that_keeps_its_place_is_not_touched_and_one_that_shifts_is_moved() {
+    // #800: a device that shifts keeps its instance (its tail and state), so the engine gets
+    // a `DeviceMove`, never a new build.
     let c = chain();
     let mut w = World::new(c.state.clone());
     // Appending touches nothing before it.
     let out = w.exec(&ins(&c.track, u32::MAX));
     assert_eq!(kinds(&out.control), ["insert"], "{:?}", out.control);
     // Inserting right after the instrument shifts the three effects behind it: each one
-    // leaves its slot and is built again one slot further, the last into a new slot.
+    // moves one slot further, the last first (into a free slot), then the new one is built
+    // in the slot left free.
     let out = w.exec(&ins(&c.track, 0));
     assert_eq!(
         kinds(&out.control),
-        ["insert", "insert", "insert", "insert"],
+        ["move", "move", "move", "insert"],
         "{:?}",
         out.control
     );
+    assert_eq!(moves(&out.control), [(19, 20), (18, 19), (17, 18)]);
+    let ControlMsg::DeviceInsert { device, .. } = out.control[3] else {
+        panic!()
+    };
+    assert_eq!(device.0, 17);
+    // Removing the first effect empties its slot, then the others move back, head first.
+    let first = w.s.state.project.tracks[&c.track]
+        .devices_in_order()
+        .get(1)
+        .map(|(id, _)| (*id).clone())
+        .unwrap();
+    let out = w.exec(&remove(&first));
+    assert_eq!(
+        kinds(&out.control),
+        ["remove", "move", "move", "move"],
+        "{:?}",
+        out.control
+    );
+    assert_eq!(moves(&out.control), [(18, 17), (19, 18), (20, 19)]);
     // Removing the last effect empties its slot and touches nothing else.
     let last = w.s.state.project.tracks[&c.track]
         .devices_in_order()
@@ -1137,29 +1579,63 @@ fn a_device_that_keeps_its_place_is_not_touched_and_one_that_shifts_is_built_aga
         .unwrap();
     let out = w.exec(&remove(&last));
     assert_eq!(kinds(&out.control), ["remove"], "{:?}", out.control);
-    // Swapping two neighbours builds both again, in each other's slot, with no removal.
+    // A reorder: the device moved is built again at its new place, the other one moves.
+    // Swapping two neighbours: the one moved to the head is removed, the other moves into its
+    // slot, then the first is built in the slot left free.
     let out = w.exec(&mv(&c.b, 0));
-    assert!(
-        !kinds(&out.control).contains(&"remove"),
+    assert_eq!(
+        kinds(&out.control),
+        ["remove", "move", "insert"],
         "{:?}",
         out.control
     );
-    assert!(kinds(&out.control).iter().all(|k| *k == "insert"));
+    assert_eq!(moves(&out.control), [(17, 18)]);
+    // Moving the first of three effects to the end: it leaves, the two others move toward the
+    // head, it is built again last.
+    w.exec(&ins(&c.track, u32::MAX));
+    let head = w.s.state.project.tracks[&c.track]
+        .devices_in_order()
+        .get(1)
+        .map(|(id, _)| (*id).clone())
+        .unwrap();
+    let out = w.exec(&mv(&head, u32::MAX));
+    assert_eq!(
+        kinds(&out.control),
+        ["remove", "move", "move", "insert"],
+        "{:?}",
+        out.control
+    );
+    assert_eq!(moves(&out.control), [(18, 17), (19, 18)]);
+    // And back to the head: it leaves the tail, the others move toward the tail.
+    let out = w.exec(&mv(&head, 0));
+    assert_eq!(
+        kinds(&out.control),
+        ["remove", "move", "move", "insert"],
+        "{:?}",
+        out.control
+    );
+    assert_eq!(moves(&out.control), [(18, 19), (17, 18)]);
+    // Each undo comes back the same way (`exec` checks the engine against a snapshot): an
+    // undo builds at most the one device it brings back.
+    for _ in 0..8 {
+        let out = w.exec(&undo());
+        let built = kinds(&out.control)
+            .iter()
+            .filter(|k| **k == "insert")
+            .count();
+        assert!(built <= 1, "{:?}", out.control);
+    }
 }
 
 #[test]
-fn a_bypassed_device_is_built_again_bypassed_and_a_bypass_reaches_the_engine() {
+fn a_bypassed_device_that_shifts_keeps_its_bypass_and_a_bypass_reaches_the_engine() {
     let c = chain();
     let mut w = World::new(c.state.clone());
     let out = w.exec(&bypass(&c.b, true));
     assert_eq!(kinds(&out.control), ["enabled"]);
     let out = w.exec(&ins(&c.track, 1));
-    // The bypassed effect shifted: it comes back with its `DeviceSetEnabled`.
-    assert!(
-        kinds(&out.control).contains(&"enabled"),
-        "{:?}",
-        out.control
-    );
+    // The bypassed effect shifted: it moved with its enabled flag, so nothing re-sends it.
+    assert_eq!(kinds(&out.control), ["move", "insert"], "{:?}", out.control);
     // The replay holds it disabled, as the snapshot does (checked by `exec`).
     let out = w.exec(&bypass(&c.b, false));
     assert_eq!(kinds(&out.control), ["enabled"]);
@@ -1175,7 +1651,7 @@ fn an_effect_on_an_audio_track_takes_the_slot_after_the_clip_players_hole() {
     let ControlMsg::DeviceInsert { device, .. } = &out.control[0] else {
         panic!()
     };
-    assert_eq!(*device, engine::msg::DeviceSlot(1));
+    assert_eq!(*device, engine::msg::DeviceSlot(17));
     // A second effect in front shifts the first one; the hole is never removed.
     let out = w.exec(&ins(&c.audio_track, 0));
     assert!(
@@ -1207,7 +1683,7 @@ fn the_lanes_of_a_device_that_shifts_follow_it() {
     assert_eq!(
         *target,
         engine::msg::AutomationTarget::DeviceParam {
-            device: engine::msg::DeviceSlot(3),
+            device: engine::msg::DeviceSlot(19),
             param: engine::msg::ParamId(0)
         }
     );
@@ -1529,6 +2005,52 @@ fn a_bypass_and_a_parameter_on_the_master_reach_the_engine_and_the_track_ones_do
         m,
         ControlMsg::DeviceSetEnabled { track, .. } if track.is_master()
     )));
+}
+
+/// #219: a MIDI effect inserted, moved, removed or brought back never moves the instrument or
+/// the audio effects: their slots (16 and after) get no message, so the engine never builds
+/// them again (their voices and tails go on; `test-support stack::` hears it).
+#[test]
+fn a_midi_effect_change_leaves_the_instrument_and_the_audio_effects_alone() {
+    let m = midi_chain();
+    let c = &m.chain;
+    let mut w = World::new(c.state.clone());
+    let midi = |index| {
+        d(device::Command::Insert {
+            track: Some(c.track.clone()),
+            master: false,
+            kind: MIDI_EFFECT.into(),
+            index,
+        })
+    };
+    for command in [
+        midi(0),
+        mv(&m.m2, 0),
+        remove(&m.m1),
+        midi(u32::MAX),
+        undo(),
+        undo(),
+    ] {
+        let out = w.exec(&command);
+        for msg in &out.control {
+            let slot = match msg {
+                ControlMsg::DeviceInsert { device, .. }
+                | ControlMsg::DeviceRemove { device, .. }
+                | ControlMsg::DeviceSetEnabled { device, .. } => Some(device.0),
+                ControlMsg::AutomationLaneUpload {
+                    target: engine::msg::AutomationTarget::DeviceParam { device, .. },
+                    ..
+                } => Some(device.0),
+                _ => None,
+            };
+            if let Some(slot) = slot {
+                assert!(
+                    u32::from(slot) < commands::engine_msgs::MIDI_EFFECT_SLOTS,
+                    "{command:?} touched slot {slot}: {msg:?}"
+                );
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------- Contour (#156)

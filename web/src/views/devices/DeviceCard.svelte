@@ -1,38 +1,63 @@
 <script lang="ts">
   /**
-   * One device of the chain: its name, bypass, and for an effect its place in the chain and its
+   * One device of the chain: its name, bypass, and for an effect (audio or MIDI) its place in the chain and its
    * removal, its presets (#191), then one control per parameter of its descriptor (`ParamControl`). Generic: no device
    * has a panel of its own. Every action is a command (`device-commands.ts`).
    */
-  import { onDestroy } from 'svelte'
+  import { onDestroy, tick } from 'svelte'
   import ParamControl from '../../lib/components/ParamControl.svelte'
   import ReductionMeter from '../../lib/components/ReductionMeter.svelte'
   import PresetBar from './PresetBar.svelte'
+  import ContourCurve from './ContourCurve.svelte'
   import { setDeviceParam } from '../../lib/device-commands'
+  import { setSidechain, sourceOptions, sourceUnheard } from '../../lib/sidechain'
   import { createLane, createMasterLane } from '../../lib/automation-commands'
-  import { createGesture } from '../../lib/gesture'
+  import { cardGestures, controlGroups, curveRate } from '../../lib/contour/card'
   import { cardActions, type ChainEntry } from '../../lib/project/chain'
-  import { deviceText, labelKey, shownParams } from '../../lib/devices'
+  import { deviceText, labelKey, shownParams, type ParamDescriptor } from '../../lib/devices'
   import { MASTER_METER, useStores } from '../../lib/stores'
   import type { MenuItem } from '../../lib/context-menu'
 
   let { entry, chain, master = false, track }: { entry: ChainEntry; chain: readonly ChainEntry[]; master?: boolean; track?: string } = $props()
 
-  const { ui, dispatcher, automated, project, meters } = useStores()
+  const { ui, dispatcher, automated, project, meters, engine } = useStores()
   const t = ui.t
 
   const descriptor = $derived(entry.descriptor)
   const name = $derived(descriptor?.name ?? entry.kind ?? t('devices.unknown'))
   const bypassed = $derived(!entry.device.enabled)
-  const isEffect = $derived(entry.effectIndex !== null)
+  // An audio or a MIDI effect moves (within its section) and is removed; the instrument does neither.
+  const isEffect = $derived(entry.section !== 'instrument')
   const actions = $derived(cardActions(chain, entry))
-  // The Compressor shows the gain it takes off (the engine reports the largest reduction of the strip's enabled compressors).
-  const reduces = $derived(entry.kind === 'faulk.compressor')
+  // The Compressor and Ceiling show the gain they take off (the engine reports the largest reduction of the strip's enabled devices).
+  const reduces = $derived(entry.kind === 'faulk.compressor' || entry.kind === 'faulk.ceiling')
   const reduction = $derived(bypassed ? 0 : meters.snap(master ? MASTER_METER : (track ?? MASTER_METER)).reductionDb)
+  // A device that can listen to another track (#952, the Compressor) chooses it here, on a track's chain only: the master's listens to the mix.
+  const keyed = $derived(!!descriptor?.sidechain && !master && !!track)
+  const sources = $derived(keyed && track && project.view ? sourceOptions(project.view.project, track, t) : [])
+  const source = $derived(entry.device.sidechain ?? '')
+  // A source that is not heard (muted, a solo elsewhere) still triggers the detection: the card says so.
+  const unheard = $derived(
+    source && project.view && sourceUnheard(project.view.project, project.soloed, source) ? (sources.find((o) => o.id === source)?.label ?? null) : null,
+  )
+  /** The source chosen in the select: one command; a refused one (a loop) leaves the select on what the project holds. */
+  async function chooseSource(select: HTMLSelectElement) {
+    dispatcher.run(setSidechain(entry.id, select.value || null))
+    await tick()
+    select.value = source
+  }
+  // Contour draws its response curve and the spectrum of its output above its controls (#156).
+  const curve = $derived(entry.kind === 'faulk.contour')
+  /** A parameter's value as the controls show it: an automation lane's, else the project's, else the default. */
+  const valueOf = (key: string): number =>
+    automated.device(entry.id, key) ?? entry.device.params[key] ?? descriptor?.params.find((p) => p.key === key)?.default ?? 0
 
-  // A knob drag is one history group: one undo takes it back whole.
-  const gesture = createGesture((command, options) => dispatcher.run(command, options))
-  onDestroy(() => gesture.end())
+  // A knob drag is one history group: one undo takes it back whole. Contour's curve (#156) has its own, and either one
+  // beginning ends the other's: the curve's wheel rest never cuts a knob's drag.
+  const gestures = cardGestures((command, options) => dispatcher.run(command, options))
+  const gesture = gestures.knobs
+  const curveGesture = gestures.curve
+  onDestroy(() => gestures.end())
 
   /** The right click on the card (#524): bypass, and for an effect its place in the chain and its removal. A control inside answers for itself. */
   function onContextMenu(event: MouseEvent) {
@@ -82,13 +107,42 @@
   }
 </script>
 
+{#snippet control(param: ParamDescriptor)}
+  {#if descriptor}
+    <div class="param-wrap">
+      <ParamControl
+        device={descriptor}
+        {param}
+        value={automated.device(entry.id, param.key) ?? entry.device.params[param.key] ?? param.default}
+        automated={automated.deviceMark(entry.id, param.key)}
+        onchange={(value) => dispatcher.run(setDeviceParam(entry.id, param.key, value))}
+        onbegin={gesture.begin}
+        onend={gesture.end}
+        live={bypassed ? undefined : meters.readout(entry.id, param.id)}
+      />
+      {#if master || track}
+        <button
+          class="param-automate"
+          type="button"
+          title={t('automation.automateHint')}
+          aria-label={t('automation.automateParam', { param: deviceText(ui.lang, labelKey(descriptor, param.key)) ?? param.key })}
+          data-testid="device-param-automate"
+          onclick={() => automateParam(param.key)}
+        >
+          {t('automation.automate')}
+        </button>
+      {/if}
+    </div>
+  {/if}
+{/snippet}
+
 <article
   class="card"
   class:bypassed
   oncontextmenu={onContextMenu}
   data-testid="device-card"
   data-kind={entry.kind}
-  data-role={isEffect ? 'effect' : 'instrument'}
+  data-role={entry.section === 'midi' ? 'midi_effect' : entry.section}
   data-bypassed={bypassed}
 >
   <header>
@@ -147,34 +201,68 @@
   {#if reduces}
     <ReductionMeter reductionDb={reduction} label={t('devices.gainReduction')} />
   {/if}
+  {#if keyed}
+    <label class="sidechain" title={t('devices.sidechainHint')}>
+      <span>{t('devices.sidechain')}</span>
+      <select data-testid="device-sidechain" value={source} onchange={(e) => void chooseSource(e.currentTarget)}>
+        <option value="">{t('devices.sidechainOwn')}</option>
+        {#each sources as option (option.id)}
+          <option value={option.id}>{option.label}</option>
+        {/each}
+      </select>
+    </label>
+    {#if unheard}
+      <p class="muted sidechain-note" data-testid="device-sidechain-unheard">{t('devices.sidechainUnheard', { track: unheard, name })}</p>
+    {/if}
+  {/if}
+  {#if curve && descriptor}
+    <ContourCurve
+      {descriptor}
+      {name}
+      {valueOf}
+      spectrum={bypassed ? null : meters.spectrum(entry.id)}
+      sampleRate={curveRate(engine.status?.sampleRate, meters.spectrumRate(entry.id))}
+      {bypassed}
+      onchange={(key, value) => dispatcher.run(setDeviceParam(entry.id, key, value))}
+      onbegin={curveGesture.begin}
+      onend={curveGesture.end}
+    />
+  {/if}
   {#if descriptor}
-    <div class="params">
-      {#each shownParams(descriptor, (key) => automated.device(entry.id, key) ?? entry.device.params[key]) as param (param.key)}
-        <div class="param-wrap">
-          <ParamControl
-            device={descriptor}
-            {param}
-            value={automated.device(entry.id, param.key) ?? entry.device.params[param.key] ?? param.default}
-            automated={automated.deviceMark(entry.id, param.key)}
-            onchange={(value) => dispatcher.run(setDeviceParam(entry.id, param.key, value))}
-            onbegin={gesture.begin}
-            onend={gesture.end}
-          />
-          {#if master || track}
-            <button
-              class="param-automate"
-              type="button"
-              title={t('automation.automateHint')}
-              aria-label={t('automation.automateParam', { param: deviceText(ui.lang, labelKey(descriptor, param.key)) ?? param.key })}
-              data-testid="device-param-automate"
-              onclick={() => automateParam(param.key)}
-            >
-              {t('automation.automate')}
-            </button>
-          {/if}
-        </div>
-      {/each}
-    </div>
+    {@const shown = shownParams(descriptor, (key) => automated.device(entry.id, key) ?? entry.device.params[key])}
+    {#if curve}
+      <!-- Contour's controls by band (#855): a legend (the handle's number and the band's name) over each band's switch and knobs. -->
+      <div class="bands">
+        {#each controlGroups(shown) as group (group.key)}
+          {@const title = deviceText(ui.lang, labelKey(descriptor, `${group.key}_on`)) ?? group.key}
+          <!-- The group of no band (the output) has one knob that names itself: no legend. -->
+          <div
+            class="band"
+            role={group.number === null ? undefined : 'group'}
+            aria-labelledby={group.number === null ? undefined : `${entry.id}-${group.key}-legend`}
+            data-testid="contour-band"
+            data-band={group.key}
+          >
+            {#if group.number !== null}
+              <div class="band-head">
+                <span class="legend" id="{entry.id}-{group.key}-legend" data-testid="contour-band-legend">
+                  <span class="num" aria-hidden="true">{group.number}</span>
+                  {title}
+                </span>
+                {#if group.on}{@render control(group.on)}{/if}
+              </div>
+            {/if}
+            <div class="params">
+              {#each group.params as param (param.key)}{@render control(param)}{/each}
+            </div>
+          </div>
+        {/each}
+      </div>
+    {:else}
+      <div class="params">
+        {#each shown as param (param.key)}{@render control(param)}{/each}
+      </div>
+    {/if}
   {:else}
     <p class="muted">{t('devices.noParams')}</p>
   {/if}
@@ -245,6 +333,48 @@
     gap: var(--fk-space-4);
     align-items: flex-end;
   }
+  .bands {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--fk-space-3);
+    align-items: flex-start;
+  }
+  .band {
+    display: flex;
+    flex-direction: column;
+    gap: var(--fk-space-2);
+    padding: var(--fk-space-2) var(--fk-space-3) var(--fk-space-3);
+    border: 1px solid var(--fk-line);
+    border-radius: var(--fk-radius-work);
+  }
+  .band-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--fk-space-3);
+  }
+  .legend {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--fk-space-2);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--fk-text-muted);
+    white-space: nowrap;
+  }
+  .num {
+    display: inline-grid;
+    place-items: center;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--fk-accent);
+    color: var(--fk-on-accent);
+    font-size: 10px;
+    letter-spacing: 0;
+  }
   .param-wrap {
     display: flex;
     flex-direction: column;
@@ -268,5 +398,27 @@
   .muted {
     margin: 0;
     color: var(--fk-text-muted);
+  }
+  .sidechain {
+    display: flex;
+    align-items: center;
+    gap: var(--fk-space-2);
+    font-size: 12px;
+    color: var(--fk-text-muted);
+  }
+  .sidechain select {
+    min-width: 0;
+    max-width: 14em;
+    height: 24px;
+    padding: 0 var(--fk-space-1);
+    border: 1px solid var(--fk-line);
+    border-radius: var(--fk-radius-pill);
+    background: var(--fk-bg);
+    color: var(--fk-text);
+    font: inherit;
+  }
+  .sidechain-note {
+    font-size: 12px;
+    max-width: 28em;
   }
 </style>

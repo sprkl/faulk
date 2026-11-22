@@ -17,3 +17,9 @@ export const removePoints = (lane: string, ticks: Tick[]): Command => ({ type: '
 /** Changes the value or the curve of points that exist (a tick without a point is refused). */
 export const updatePoints = (lane: string, points: Point[]): Command => ({ type: 'automation.points.update', lane, points })
 export const clearLane = (lane: string): Command => ({ type: 'automation.lane.clear', lane })
+/**
+ * Writes points exactly as given (a point on a tick that holds one replaces it) and takes the points at `remove` out, as one
+ * history entry: the inverse of the edits above, and the one command of a ramp (#769). Values are kept as they are, so the page
+ * rounds them to the parameter's step first (`Axis.clamp`).
+ */
+export const restorePoints = (lane: string, points: Point[], remove: Tick[] = []): Command => ({ type: 'automation.points.restore', lane, points, remove })

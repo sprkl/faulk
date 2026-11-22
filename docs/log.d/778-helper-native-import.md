@@ -1,0 +1,2 @@
+2026-11-06
+* **Update** (#778): in Boost, once the helper has the project's folder open, the helper imports an audio file itself, with the page's decoder compiled natively: a file of the folder named by an agent (`clip.import_audio_file`) or one the user picks in the helper's own file dialog; it writes the blob and the caches through a hash-addressed confined write, and the page makes the clip. Storage architecture § 4, § 5.9 and § 5.13, the local bridge constraints, the MVP plan's AU-7 entry and the verification guide are updated.

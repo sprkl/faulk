@@ -55,6 +55,8 @@ fn variant(rt: &RtMsg) -> &'static str {
         RtMsg::SetTransport { .. } => "SetTransport",
         RtMsg::SetMetronome { .. } => "SetMetronome",
         RtMsg::SetMaster { .. } => "SetMaster",
+        RtMsg::SetScale(_) => "SetScale",
+        RtMsg::SetKeyChanges(_) => "SetKeyChanges",
         RtMsg::TrackPut(_) => "TrackPut",
         RtMsg::TrackRemove(_) => "TrackRemove",
         RtMsg::TrackSetMix { .. } => "TrackSetMix",
@@ -65,8 +67,10 @@ fn variant(rt: &RtMsg) -> &'static str {
         RtMsg::SelectTrack { .. } => "SelectTrack",
         RtMsg::DevicePut { .. } => "DevicePut",
         RtMsg::DeviceRemove { .. } => "DeviceRemove",
+        RtMsg::DeviceMove { .. } => "DeviceMove",
         RtMsg::DeviceSetEnabled { .. } => "DeviceSetEnabled",
         RtMsg::ParamSet { .. } => "ParamSet",
+        RtMsg::DeviceSidechain { .. } => "DeviceSidechain",
         RtMsg::ClipPut(_) => "ClipPut",
         RtMsg::ClipRemove(_) => "ClipRemove",
         RtMsg::SourcePut(_) => "SourcePut",
@@ -83,12 +87,14 @@ fn variant(rt: &RtMsg) -> &'static str {
     }
 }
 
-/// Every name [`variant`] returns (27 variants).
-const ALL_VARIANTS: [&str; 27] = [
+/// Every name [`variant`] returns (30 variants).
+const ALL_VARIANTS: [&str; 31] = [
     "Reset",
     "SetTransport",
     "SetMetronome",
     "SetMaster",
+    "SetScale",
+    "SetKeyChanges",
     "TrackPut",
     "TrackRemove",
     "TrackSetMix",
@@ -99,8 +105,10 @@ const ALL_VARIANTS: [&str; 27] = [
     "SelectTrack",
     "DevicePut",
     "DeviceRemove",
+    "DeviceMove",
     "DeviceSetEnabled",
     "ParamSet",
+    "DeviceSidechain",
     "ClipPut",
     "ClipRemove",
     "SourcePut",
@@ -173,6 +181,12 @@ fn every_rt_message_applies_without_allocating() {
             pan: 0.0,
             mute: true,
         },
+        M::SetScale {
+            pitch_classes: 0x0AB5,
+        },
+        M::SetKeyChanges {
+            changes: vec![(Tick(3840), 0x0AB5), (Tick(7680), 0)],
+        },
         create(0),
         create(1),
         M::TrackRemove {
@@ -204,9 +218,22 @@ fn every_rt_message_applies_without_allocating() {
         M::SelectTrack { track: Some(T0) },
         insert(0, 0, TONE.kind_id),
         insert(0, 1, GAIN.kind_id),
+        // A Compressor listening to another track (#952).
+        insert(0, 2, engine::devices::compressor::DESCRIPTOR.kind_id),
+        M::DeviceSidechain {
+            track: T0,
+            device: DeviceSlot(2),
+            source: Some(TrackSlot(3)),
+        },
+        // Past the row (4 slots): the move grows it (#800).
+        M::DeviceMove {
+            track: T0,
+            from: DeviceSlot(1),
+            to: DeviceSlot(9),
+        },
         M::DeviceRemove {
             track: T0,
-            device: DeviceSlot(1),
+            device: DeviceSlot(9),
         },
         M::DeviceSetEnabled {
             track: T0,
@@ -1102,4 +1129,27 @@ fn a_refused_allocation_is_a_typed_error() {
         Table::<Note>::try_with_capacity(huge),
         Err(MsgError::OutOfMemory { .. })
     ));
+}
+
+/// The key changes (#953): a table in, the next one swaps it and the old one comes back as the one
+/// garbage item (none for the first, which replaced nothing); an empty list clears; a list the
+/// binary search cannot read is refused by `prepare`, nothing reaches the audio side.
+#[test]
+fn key_changes_swap_whole_and_the_old_table_is_the_garbage() {
+    let (mut p, mut e) = sides();
+    let list = |ticks: &[i64]| M::SetKeyChanges {
+        changes: ticks.iter().map(|t| (Tick(*t), 0x0AB5)).collect(),
+    };
+    assert_eq!(cycle(&mut p, &mut e, list(&[3840, 7680])), "SetKeyChanges");
+    assert_eq!(p.collect(), 0, "nothing was replaced");
+    assert_eq!(cycle(&mut p, &mut e, list(&[3840])), "SetKeyChanges");
+    assert_eq!(p.collect(), 0, "the first table was collected by `cycle`");
+    assert_eq!(cycle(&mut p, &mut e, list(&[])), "SetKeyChanges");
+    assert_eq!(cycle(&mut p, &mut e, list(&[])), "SetKeyChanges");
+    for bad in [list(&[7680, 3840]), list(&[3840, 3840]), list(&[0])] {
+        assert!(matches!(p.prepare(bad), Err(MsgError::BadPayload { .. })));
+    }
+    let too_many: Vec<i64> = (1..=limits::MAX_KEY_CHANGES as i64 + 1).collect();
+    assert!(p.prepare(list(&too_many)).is_err());
+    assert_eq!(e.leaked(), 0);
 }

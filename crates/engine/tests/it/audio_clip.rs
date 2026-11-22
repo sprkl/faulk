@@ -19,10 +19,11 @@ use engine::msg::{
 };
 use engine::time::{Frame, PPQ, Quantize, SampleRate, Tempo, Tick, TimeSignature};
 
-/// The track's own fade in (5 ms, `graph::FADE_SECONDS`) and the player's (2 ms), and the
-/// gate's: the frames after an onset that may differ from the source.
+/// The player's fade in (2 ms) and its gate's: the frames after an onset that may differ from
+/// the source. A track that exists before the onset adds no fade of its own: its strip took
+/// its levels while it rendered nothing (#759).
 fn settle_frames(rate: u32) -> usize {
-    (rate as usize * 5).div_ceil(1000) + 2 * fade_frames(rate) as usize
+    2 * fade_frames(rate) as usize
 }
 
 fn underruns(rig: &Rig) -> u32 {
@@ -67,8 +68,8 @@ fn a_clip_launched_from_the_grid_plays_its_source_sample_for_sample() {
     rig.send(&[ControlMsg::Play { from: Tick(0) }, launch(0)]);
     // 32 000 frames: past the 1.5 s preload, through the ring.
     let (l, r) = rig.render(250);
-    // Launched at once: the clip's first frame is the block's first (the track's own fade
-    // in, from 0, makes that frame silent).
+    // Launched at once: the clip's first frame is the block's first (the player's fade in,
+    // from 0, makes that frame silent).
     let onset = 0;
     assert!(first_sound(&l).is_some_and(|i| i <= 1), "it starts at once");
     let skip = settle_frames(RATE);
@@ -97,6 +98,63 @@ fn a_clip_launched_from_the_grid_plays_its_source_sample_for_sample() {
         Some(ClipSlot(0)),
         "the grid reports it"
     );
+}
+
+/// An Echo with no feedback nor wet signal on track 0: its output is its input, bit for bit,
+/// but it keeps the track rendered while the track waits (#759).
+fn transparent_echo() -> ControlMsg {
+    use engine::devices::echo::{DESCRIPTOR, FEEDBACK, MIX};
+    use engine::msg::{DeviceSlot, ParamId, encode_state};
+    ControlMsg::DeviceInsert {
+        track: TrackSlot(0),
+        device: DeviceSlot(0),
+        kind: DESCRIPTOR.kind_id,
+        state: encode_state(&[(ParamId(FEEDBACK), 0.0), (ParamId(MIX), 0.0)]),
+    }
+}
+
+/// The first 20 blocks of a 1 kHz sine launched with the `Play` on a 48 kHz rig (a fade of a
+/// strip, 240 frames, is longer than a block), `gap` stopped blocks after `before`.
+fn launch_after(before: &[ControlMsg], gap: usize) -> (Vec<f32>, Vec<f32>) {
+    let (mut rig, _) = sine_rig(48_000, 48_000, 1_000.0, 2.0, None);
+    rig.render(200);
+    rig.send(before);
+    rig.render(gap);
+    rig.send(&[ControlMsg::Play { from: Tick(0) }, launch(0)]);
+    rig.render(20)
+}
+
+#[test]
+fn a_transparent_effect_on_an_audio_track_leaves_its_launch_as_it_is() {
+    // #759: with or without the Echo, the clip's start is the same, sample for sample, and
+    // so is a fader moved shortly before the launch, its ramp included.
+    let gain = ControlMsg::TrackSetMix {
+        track: TrackSlot(0),
+        gain: 0.5,
+        pan: 0.0,
+        mute: false,
+    };
+    let plain = launch_after(&[], 0);
+    assert!(plain.0.iter().any(|s| *s != 0.0));
+    assert_eq!(launch_after(&[transparent_echo()], 0), plain);
+    assert_eq!(launch_after(&[transparent_echo()], 10), plain);
+    for gap in [0, 1, 2, 10] {
+        let faded = launch_after(std::slice::from_ref(&gain), gap);
+        assert_eq!(
+            launch_after(&[gain.clone(), transparent_echo()], gap),
+            faded,
+            "a fader moved {gap} blocks before the launch"
+        );
+        assert_ne!(faded, plain);
+    }
+    // Moved 10 blocks before (past its 5 ms ramp), the fader is the clip's level from its
+    // first frame past the player's fade.
+    let (l, _) = launch_after(&[gain], 10);
+    let (p, _) = &plain;
+    let skip = 2 * fade_frames(48_000) as usize;
+    for i in skip..l.len() {
+        assert_eq!(l[i], 0.5 * p[i], "frame {i}");
+    }
 }
 
 #[test]

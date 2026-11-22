@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { barStart, moveToTrack, placeFromSlot, placeScene, repeatPlacement } from './arrangement-commands'
+import { barStart, duplicatePlacements, movePlacements, moveToTrack, placeFromSlot, placeScene, repeatPlacement, resizePlacement } from './arrangement-commands'
 
 describe('sending the grid to the arrangement', () => {
   it('puts a clip on the bar the play position is in', () => {
@@ -29,5 +29,27 @@ describe('moving to another track', () => {
     expect(moveToTrack(moves)).toEqual({ type: 'arrangement.move_to_track', moves })
     expect(moveToTrack(moves, 0)).toEqual({ type: 'arrangement.move_to_track', moves })
     expect(moveToTrack(moves, 960)).toEqual({ type: 'arrangement.move_to_track', moves, by: 960 })
+  })
+
+  it('names what to do with a place that is taken only when it is not the default (#805)', () => {
+    const moves = [{ placement: 'p', track: 't' }]
+    expect(moveToTrack(moves, 0, 'replace')).toEqual({ type: 'arrangement.move_to_track', moves })
+    expect(moveToTrack(moves, 0, 'skip')).toEqual({ type: 'arrangement.move_to_track', moves, if_occupied: 'skip' })
+    expect(duplicatePlacements(['p'], false, 960, 'refuse')).toEqual({
+      type: 'arrangement.duplicate',
+      placements: ['p'],
+      linked: false,
+      by: 960,
+      if_occupied: 'refuse',
+    })
+    expect(duplicatePlacements(['p'], true)).toEqual({ type: 'arrangement.duplicate', placements: ['p'], linked: true })
+    expect(movePlacements(['p'], 960)).toEqual({ type: 'arrangement.move', placements: ['p'], by: 960 })
+    expect(movePlacements(['p'], 960, 'refuse')).toEqual({ type: 'arrangement.move', placements: ['p'], by: 960, if_occupied: 'refuse' })
+    expect(repeatPlacement('p', 7680, 'refuse')).toEqual({ type: 'arrangement.repeat', placement: 'p', until: 7680, if_occupied: 'refuse' })
+    expect(placeFromSlot('c', 0, false, 'refuse')).toEqual({ type: 'arrangement.place_from_slot', clip: 'c', start: 0, linked: false, if_occupied: 'refuse' })
+    expect(placeScene('s', 0, false, 'refuse')).toEqual({ type: 'arrangement.place_scene', scene: 's', start: 0, linked: false, if_occupied: 'refuse' })
+    expect(placeScene('s', 0, false)).toEqual({ type: 'arrangement.place_scene', scene: 's', start: 0, linked: false })
+    expect(resizePlacement('p', 'end', 960)).toEqual({ type: 'arrangement.resize', placement: 'p', edge: 'end', to: 960 })
+    expect(resizePlacement('p', 'end', 960, 'refuse')).toEqual({ type: 'arrangement.resize', placement: 'p', edge: 'end', to: 960, if_occupied: 'refuse' })
   })
 })

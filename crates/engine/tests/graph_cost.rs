@@ -60,21 +60,31 @@ fn playing(slot: u32) -> Vec<M> {
     ]
 }
 
-/// Best of three runs, in microseconds per block.
-fn time(e: &mut Engine, blocks: usize) -> f64 {
+/// Best of `rounds` runs per engine, in microseconds per block, the engines measured in
+/// turn inside every round: a stretch of machine load (a parallel build) hits the three of
+/// them alike and each one's best round is one the load spared, so the figures compared
+/// below share the machine's state instead of each one getting its own (#763).
+fn time_all(engines: &mut [&mut Engine], blocks: usize, rounds: usize) -> Vec<f64> {
     let (mut l, mut r) = (vec![0.0; BLOCK], vec![0.0; BLOCK]);
-    let mut best = f64::MAX;
-    for _ in 0..3 {
-        for _ in 0..20 {
-            e.process(&mut l, &mut r);
+    let mut best = vec![f64::MAX; engines.len()];
+    for _ in 0..rounds {
+        for (e, best) in engines.iter_mut().zip(&mut best) {
+            for _ in 0..20 {
+                e.process(&mut l, &mut r);
+            }
+            let start = Instant::now();
+            for _ in 0..blocks {
+                e.process(&mut l, &mut r);
+            }
+            *best = best.min(start.elapsed().as_secs_f64() * 1e6 / blocks as f64);
         }
-        let start = Instant::now();
-        for _ in 0..blocks {
-            e.process(&mut l, &mut r);
-        }
-        best = best.min(start.elapsed().as_secs_f64() * 1e6 / blocks as f64);
     }
     best
+}
+
+/// Best of three runs of one engine, in microseconds per block.
+fn time(e: &mut Engine, blocks: usize) -> f64 {
+    time_all(&mut [e], blocks, 3)[0]
 }
 
 #[test]
@@ -108,9 +118,8 @@ fn an_empty_track_costs_no_notable_computation() {
         send(&mut pp, &mut many, &playing(slot));
     }
 
-    let b = time(&mut base, blocks);
-    let e = time(&mut empties, blocks);
-    let p = time(&mut many, blocks);
+    let times = time_all(&mut [&mut base, &mut empties, &mut many], blocks, 15);
+    let (b, e, p) = (times[0], times[1], times[2]);
     let per_empty = (e - b).max(0.0) / f64::from(EMPTY);
     let per_playing = (p - b).max(0.0) / f64::from(PLAYING);
     let share = (e - b).max(0.0) / BUDGET_US * 100.0;
@@ -121,18 +130,18 @@ fn an_empty_track_costs_no_notable_computation() {
         per_empty * 1e3,
         per_playing * 1e3,
     );
-    // Debug builds share the machine with the other tests: a looser bound there.
-    let ratio = if cfg!(debug_assertions) { 10.0 } else { 50.0 };
+    // An empty track costs a slot visit (about 1/40 of a playing track here); one that
+    // rendered its graph would cost a good fraction of a playing one. The bound sits between
+    // the two, on a ratio measured on the same rounds, so the machine's load cancels out.
+    // Debug builds have no tighter figure: a looser bound there.
+    let ratio = if cfg!(debug_assertions) { 10.0 } else { 20.0 };
     assert!(
         per_empty * ratio < per_playing,
         "an empty track costs {per_empty} µs, a playing one {per_playing} µs"
     );
-    if !cfg!(debug_assertions) {
-        assert!(
-            share < 5.0,
-            "{EMPTY} empty tracks take {share:.2} % of a block's budget"
-        );
-    }
+    // No bound on `share` itself: a share of a wall-clock budget moves with the machine's
+    // load (#763). The ratio above, measured on the same rounds, is the check; the share is
+    // printed for the record (MO-3).
 }
 
 /// The cost of the device fades (#233) in their worst case: a chain of `OUTGOING_ROOM`
@@ -195,6 +204,82 @@ fn a_whole_chain_rebuilt_at_once_costs_one_fade_of_double_work() {
         assert!(
             best < BUDGET_US / 2.0,
             "the fade of a whole chain takes {best:.2} µs of a {BUDGET_US:.0} µs block"
+        );
+    }
+}
+
+/// The same worst case for removals (#800): every filter of the chain removed at once, so
+/// that for one fade each one runs in series at its slot, fading toward its input. Printed per
+/// block against the same chain settled.
+#[test]
+fn a_whole_chain_removed_at_once_costs_one_fade_of_its_devices() {
+    use engine::devices::filter::DESCRIPTOR as FILTER;
+    use engine::graph::OUTGOING_ROOM;
+    let filter = |slot: usize| M::DeviceInsert {
+        track: TrackSlot(0),
+        device: DeviceSlot(slot as u16),
+        kind: FILTER.kind_id,
+        state: encode_state(&[]),
+    };
+    let removal = |slot: usize| M::DeviceRemove {
+        track: TrackSlot(0),
+        device: DeviceSlot(slot as u16),
+    };
+    let (mut p, mut e) = rig();
+    let mut setup = playing(0);
+    setup.extend((1..=OUTGOING_ROOM).map(filter));
+    send(&mut p, &mut e, &setup);
+    let steady = time(&mut e, 300);
+    let (mut l, mut r) = (vec![0.0; BLOCK], vec![0.0; BLOCK]);
+    let rounds = 100;
+    let mut best = f64::MAX;
+    for _ in 0..3 {
+        let mut total = 0.0;
+        for _ in 0..rounds {
+            let rts: Vec<_> = (1..=OUTGOING_ROOM)
+                .map(|slot| p.prepare(removal(slot)).unwrap().unwrap())
+                .collect();
+            for rt in rts {
+                e.apply(rt);
+            }
+            assert_eq!(
+                e.state().track(TrackSlot(0)).unwrap().graph.outgoing_len(),
+                OUTGOING_ROOM
+            );
+            let start = Instant::now();
+            for _ in 0..2 {
+                e.render(&mut l, &mut r);
+            }
+            total += start.elapsed().as_secs_f64() * 1e6 / 2.0;
+            assert_eq!(
+                e.state().track(TrackSlot(0)).unwrap().graph.outgoing_len(),
+                0
+            );
+            p.collect();
+            // The chain back, settled, for the next round.
+            let rts: Vec<_> = (1..=OUTGOING_ROOM)
+                .map(|slot| p.prepare(filter(slot)).unwrap().unwrap())
+                .collect();
+            for rt in rts {
+                e.apply(rt);
+            }
+            for _ in 0..3 {
+                e.render(&mut l, &mut r);
+            }
+            p.collect();
+        }
+        best = best.min(total / f64::from(rounds));
+    }
+    eprintln!(
+        "per block of {BLOCK} frames ({BUDGET_US:.0} µs budget), a tone and {OUTGOING_ROOM} \
+         filters: settled {steady:.2} µs; every filter removed, the two blocks of the fade \
+         {best:.2} µs ({:.2}x)",
+        best / steady
+    );
+    if !cfg!(debug_assertions) {
+        assert!(
+            best < BUDGET_US / 2.0,
+            "the fade of a whole chain removed takes {best:.2} µs of a {BUDGET_US:.0} µs block"
         );
     }
 }

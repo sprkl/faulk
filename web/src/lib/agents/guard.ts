@@ -81,6 +81,9 @@ export function agentQuestion(command: Command, view: GuardView | null): AgentQu
     }
     case 'command':
       return { kind: 'command', command: type }
+    // Asked by the dispatcher's own path for `clip.import_audio_url` (it knows the track's name), never from this table.
+    case 'importAudio':
+      return null
   }
 }
 

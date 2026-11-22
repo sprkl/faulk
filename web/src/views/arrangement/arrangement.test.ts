@@ -17,12 +17,17 @@ import {
   moved,
   clampRows,
   trackTargets,
+  freeRows,
+  copyBlocked,
+  landingOn,
+  repeatCovers,
   playsAt,
   resizeTo,
   resized,
   rowAt,
   passesOf,
   passCount,
+  followsPlacement,
   markerJump,
   openingView,
   wholeSongView,
@@ -388,6 +393,16 @@ describe('split', () => {
     expect(passCount(late)).toBe(3)
   })
 
+  it('knows which clips follow the length of their placement (#898)', () => {
+    const empty = { ...short, notes: [], looping: null, offset: 0, uses: 1, audio: null }
+    expect(followsPlacement(empty)).toBe(true)
+    expect(followsPlacement({ ...empty, notes: [{ start: 0, length: 480, pitch: 60, velocity: 100 } as Block['notes'][number]] })).toBe(false)
+    expect(followsPlacement({ ...empty, audio: {} as NonNullable<Block['audio']> })).toBe(false)
+    expect(followsPlacement({ ...empty, uses: 2 })).toBe(false)
+    expect(followsPlacement({ ...empty, offset: 480 })).toBe(false)
+    expect(followsPlacement({ ...empty, looping: { start: 0, end: 480 } })).toBe(false)
+  })
+
   it('finds the clip position round the clip or its loop', () => {
     expect(clipPosition(short, 5000)).toBe(5000 - 3840)
     expect(clipPosition(looped, 1920)).toBe(480)
@@ -497,5 +512,85 @@ describe('drawing a clip (#615)', () => {
     expect(blocksInBox(blocks, plain(3), view, 0, box).map((b) => b.id)).toEqual(['p1', 'p2', 'q1'])
     expect(blocksInBox(blocks, plain(3), view, 0, { x0: 20, y0: y, x1: 30, y1: y + 1 }).map((b) => b.id)).toEqual(['p1'])
     expect(blocksInBox(blocks, plain(3), view, 0, { x0: 900, y0: y, x1: 990, y1: y + 1 })).toEqual([])
+  })
+})
+
+describe('moves and copies that never replace a clip (#805)', () => {
+  const box = (id: string, row: number, start: number, end: number, audio = false): Block =>
+    ({ id, track: `t${row}`, row, clip: `c${id}`, start, length: end - start, offset: 0, end, name: id, audio: audio ? {} : null }) as unknown as Block
+  const tracks = [
+    { id: 't0', midi: true },
+    { id: 't1', midi: true },
+    { id: 't2', midi: true },
+    { id: 't3', midi: true },
+  ]
+
+  it('stays on the next track when its place is free', () => {
+    const moving = box('m', 0, 0, 100)
+    expect(freeRows([moving], 1, 0, tracks, [moving, box('x', 1, 200, 300)])).toBe(1)
+    // Touching is not overlapping.
+    expect(freeRows([moving], 1, 0, tracks, [moving, box('x', 1, 100, 300)])).toBe(1)
+  })
+
+  it('goes on past the occupied tracks, up or down, and gives up at the edge', () => {
+    const moving = box('m', 1, 0, 100)
+    const busy = [box('a', 0, 50, 150), box('b', 2, 0, 10), box('c', 3, 90, 120)]
+    expect(freeRows([moving], 1, 0, tracks, [moving, busy[1]!])).toBe(2)
+    expect(freeRows([moving], -1, 0, tracks, [moving, busy[0]!])).toBeNull()
+    expect(freeRows([moving], 1, 0, tracks, [moving, busy[1]!, box('d', 3, 500, 600)])).toBe(2)
+    expect(freeRows([moving], 1, 0, tracks, [moving, busy[1]!, busy[2]!])).toBeNull()
+  })
+
+  it('counts the shift in time, ignores the clips that move, and moves a group by one shift', () => {
+    const [x, y] = [box('x', 0, 0, 100), box('y', 1, 0, 100)]
+    // Both move one track down: x lands on y's place, which y leaves, so the shift is free.
+    expect(freeRows([x, y], 1, 0, tracks, [x, y])).toBe(1)
+    // With a clip on track 2 under x's new place the group needs a shift that the tracks do not have.
+    expect(freeRows([x, y], 1, 0, tracks, [x, y, box('z', 2, 50, 60)])).toBeNull()
+    expect(freeRows([x], 1, 500, tracks, [x, box('z', 1, 0, 100)])).toBe(1)
+    expect(freeRows([x], 1, 50, tracks, [x, box('z', 1, 0, 100)])).toBe(2)
+  })
+
+  it('passes over a track of the other kind and never past the first or last track', () => {
+    const mixed = [
+      { id: 't0', midi: true },
+      { id: 'a1', midi: false },
+      { id: 't2', midi: true },
+    ]
+    const moving = box('m', 0, 0, 100)
+    expect(freeRows([moving], 1, 0, mixed, [moving])).toBe(2)
+    expect(freeRows([moving], 3, 0, mixed, [moving])).toBeNull()
+    expect(freeRows([moving], 0, 0, mixed, [moving])).toBe(0)
+  })
+
+  it('blocks a copy that would land on the clip after it, not on free ground or another track', () => {
+    const [hook, next] = [box('h', 0, 0, 100), box('n', 0, 100, 200)]
+    expect(copyBlocked([hook], 100, [hook, next])).toBe(true)
+    expect(copyBlocked([hook], 100, [hook, box('o', 1, 100, 200)])).toBe(false)
+    expect(copyBlocked([hook], 100, [hook, box('n', 0, 200, 300)])).toBe(false)
+    // A clip of the selection itself is not in the way.
+    expect(copyBlocked([hook, next], 200, [hook, next])).toBe(false)
+  })
+
+  it('names the earliest clip a move or a copy would land on, on the track it stays in (#805)', () => {
+    const [a, b, c] = [box('a', 0, 0, 100), box('b', 0, 100, 200), box('c', 0, 200, 300)]
+    expect(landingOn([a], 150, [a, b, c])?.id).toBe('b')
+    expect(landingOn([a], -50, [a, b, c])).toBeNull()
+    expect(landingOn([a], 100, [a, b, box('o', 1, 100, 200)])?.id).toBe('b')
+    expect(landingOn([a], 100, [a, box('o', 1, 100, 200)])).toBeNull()
+    // The clips that move together do not stand in each other's way, but the one after them does.
+    expect(landingOn([a, b], 100, [a, b, c])?.id).toBe('c')
+    expect(landingOn([a, b], 100, [a, b])).toBeNull()
+    // Touching is not landing on.
+    expect(landingOn([a], 0, [a, b])).toBeNull()
+  })
+
+  it('names the first clip a repeat up to a tick would cover (#805)', () => {
+    const [a, b, c] = [box('a', 0, 0, 100), box('b', 0, 300, 400), box('c', 0, 500, 600)]
+    expect(repeatCovers(a, 300, [a, b, c])).toBeNull()
+    expect(repeatCovers(a, 301, [a, b, c])?.id).toBe('b')
+    expect(repeatCovers(a, 900, [a, b, c])?.id).toBe('b')
+    expect(repeatCovers(b, 900, [a, b, c])?.id).toBe('c')
+    expect(repeatCovers(a, 300, [a, box('o', 1, 100, 200)])).toBeNull()
   })
 })

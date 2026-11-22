@@ -50,7 +50,7 @@
   const t = ui.t
   const run = (command: Command) => dispatcher.run(command)
 
-  const NO_SLOTS = { epoch: 0, tracks: {}, scenes: {} }
+  const NO_SLOTS = { epoch: 0, tracks: {}, scenes: {}, devices: {} }
 
   /** The sizes the layout is made of (the same numbers as the styles below): the window of drawn cells follows from them. */
   const ROW_H = 40
@@ -223,6 +223,8 @@
 
   /** Selects a track (the keyboard plays it) when it is not the selected one. */
   function select(track: string) {
+    // Picking a track ends the devices panel's master view, even when it is already selected (#806).
+    ui.masterSelection = null
     if (project.selected?.id !== track) run(selectTrack(track))
   }
 
@@ -492,13 +494,13 @@
   function sendToArrangement(id: string, linked: boolean) {
     cellMenu = null
     if (!homes.has(id)) return
-    run(placeFromSlot(id, sendTick(), linked))
+    run(placeFromSlot(id, sendTick(), linked, 'refuse'))
     void tick().then(() => board?.querySelector<HTMLElement>(`[data-cell][data-clip="${id}"]`)?.focus())
   }
 
   function sendSceneToArrangement(scene: string, linked: boolean) {
     menuFor = null
-    run(placeScene(scene, sendTick(), linked))
+    run(placeScene(scene, sendTick(), linked, 'refuse'))
   }
 
   async function startClipRename(id: string) {

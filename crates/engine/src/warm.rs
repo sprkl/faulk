@@ -85,6 +85,14 @@ pub fn messages() -> Vec<Phase> {
             signature: TimeSignature::COMMON,
             launch_quantize: Quantize::Beat,
         },
+        // A minor (#690): the scale the MIDI effects read.
+        M::SetScale {
+            pitch_classes: 0b1010_1011_0101,
+        },
+        // A change to the relative major at bar 2 (#953).
+        M::SetKeyChanges {
+            changes: vec![(Tick(3840), 0b1010_1101_0101)],
+        },
         M::SetMetronome {
             enabled: true,
             volume: 1.0,
@@ -104,10 +112,17 @@ pub fn messages() -> Vec<Phase> {
             kind: TrackKind::Audio,
         },
     ];
-    // The devices of the registry: the first instrument on the first track, any other
-    // instrument on a MIDI track of its own, the effects in the chain of the first track.
+    // The devices of the registry: the MIDI effects at the head of the first track's chain,
+    // then its first instrument, then the audio effects (the chain's order, so the notes of
+    // the first track run through every MIDI effect into the instrument); any other
+    // instrument on a MIDI track of its own.
+    let midi_effects = REGISTRY
+        .iter()
+        .filter(|b| b.descriptor.role == DeviceRole::MidiEffect)
+        .count() as u16;
     let mut next_track = 2;
-    let mut next_effect = 1;
+    let mut next_midi = 0;
+    let mut next_effect = midi_effects + 1;
     let mut first_instrument = true;
     let mut placed = Vec::new();
     for builtin in REGISTRY {
@@ -115,7 +130,7 @@ pub fn messages() -> Vec<Phase> {
         let (track, device) = match desc.role {
             DeviceRole::Instrument if first_instrument => {
                 first_instrument = false;
-                (synth_track, d(0))
+                (synth_track, d(midi_effects))
             }
             DeviceRole::Instrument => {
                 let track = t(next_track);
@@ -131,7 +146,11 @@ pub fn messages() -> Vec<Phase> {
                 next_effect += 1;
                 (synth_track, device)
             }
-            DeviceRole::MidiEffect => continue,
+            DeviceRole::MidiEffect => {
+                let device = d(next_midi);
+                next_midi += 1;
+                (synth_track, device)
+            }
         };
         structure.push(M::DeviceInsert {
             track,
@@ -354,6 +373,17 @@ pub fn messages() -> Vec<Phase> {
             pan: Some(0.0),
         },
     ];
+    // A device that listens to another track (#952): the audio track keys it, so the graph's
+    // plan, its tap and the keyed render run here.
+    for (track, device, desc) in &placed {
+        if desc.sidechain {
+            mix.push(M::DeviceSidechain {
+                track: *track,
+                device: *device,
+                source: Some(audio_track),
+            });
+        }
+    }
     for (track, device, desc) in placed.iter().chain(&master_placed) {
         mix.push(M::DeviceSetEnabled {
             track: *track,
@@ -374,6 +404,22 @@ pub fn messages() -> Vec<Phase> {
             });
         }
     }
+
+    // A device moved to the free slot after the master's effects and back (#800): the
+    // master's chain ends as it was.
+    let free = d(master_placed.len() as u16);
+    mix.extend([
+        M::DeviceMove {
+            track: TrackSlot::MASTER,
+            from: d(0),
+            to: free,
+        },
+        M::DeviceMove {
+            track: TrackSlot::MASTER,
+            from: free,
+            to: d(0),
+        },
+    ]);
 
     // Phase 3: the transport, with notes sounding.
     let mut play = vec![

@@ -75,7 +75,7 @@ fn the_snapshot_starts_with_the_settings_then_each_track() {
     let ControlMsg::DeviceInsert { device, state, .. } = &msgs[5] else {
         panic!("{:?}", msgs[5]);
     };
-    assert_eq!(*device, DeviceSlot(0));
+    assert_eq!(*device, DeviceSlot(16));
     assert_eq!(
         engine::msg::state_pairs(state).count(),
         6,
@@ -113,7 +113,7 @@ fn each_edit_compiles_to_its_messages() {
                 },
                 ControlMsg::DeviceInsert {
                     track: TrackSlot(1),
-                    device: DeviceSlot(0),
+                    device: DeviceSlot(16),
                     ..
                 },
             ]
@@ -178,7 +178,7 @@ fn each_edit_compiles_to_its_messages() {
         msgs,
         [ControlMsg::ParamSet {
             track: TrackSlot(1),
-            device: DeviceSlot(0),
+            device: DeviceSlot(16),
             param: ParamId(gain),
             value: 0.5
         }]
@@ -1222,4 +1222,46 @@ fn a_resync_after_another_engine_starts_newer_than_both() {
     assert_eq!(epoch_of(&s.resync().unwrap()), 11);
     // An older other engine changes nothing but the step.
     assert_eq!(epoch_of(&s.resync_after(3).unwrap()), 12);
+}
+
+#[test]
+fn a_key_change_reaches_the_engine_as_the_whole_list_and_an_undo_sends_it_again() {
+    let (mut s, _, _) = synced();
+    let bar = 3840;
+    let d_major: u16 = (1 << 2) | (1 << 4) | (1 << 6) | (1 << 7) | (1 << 9) | (1 << 11) | (1 << 1);
+    let (_, msgs) = run(
+        &mut s,
+        json!({"type": "arrangement.key_change.set", "tick": bar * 4, "root": 2, "mode": "major"}),
+    );
+    assert_eq!(
+        msgs,
+        vec![ControlMsg::SetKeyChanges {
+            changes: vec![(Tick(bar * 4), d_major)]
+        }]
+    );
+    let (_, msgs) = run(
+        &mut s,
+        json!({"type": "arrangement.key_change.set", "tick": bar * 2, "root": 0, "mode": "chromatic"}),
+    );
+    assert_eq!(
+        msgs,
+        vec![ControlMsg::SetKeyChanges {
+            changes: vec![(Tick(bar * 2), 0), (Tick(bar * 4), d_major)]
+        }]
+    );
+    let (_, msgs) = run(&mut s, json!({"type": "history.undo"}));
+    assert_eq!(msgs.len(), 1, "{msgs:?}");
+    assert!(matches!(&msgs[0], ControlMsg::SetKeyChanges { changes } if changes.len() == 1));
+    // A project with key changes sends them in its snapshot, one without sends none.
+    let (snap, _) = snapshot(&s.state.project, &s.state.session);
+    assert!(
+        snap.iter()
+            .any(|m| matches!(m, ControlMsg::SetKeyChanges { .. }))
+    );
+    let (plain, _) = snapshot(&testing::fixture().state.project, &s.state.session);
+    assert!(
+        !plain
+            .iter()
+            .any(|m| matches!(m, ControlMsg::SetKeyChanges { .. }))
+    );
 }

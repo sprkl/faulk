@@ -82,6 +82,7 @@ fn a_clip_sent_from_the_grid_is_an_independent_copy_and_a_linked_one_follows_the
             clip: f.looped.clone(),
             start: Tick(11520),
             linked: false,
+            if_occupied: Default::default(),
         },
     );
     let arrangement::Output::PlaceFromSlot {
@@ -125,6 +126,7 @@ fn a_clip_sent_from_the_grid_is_an_independent_copy_and_a_linked_one_follows_the
             clip: f.looped.clone(),
             start: Tick(11520),
             linked: true,
+            if_occupied: Default::default(),
         },
     );
     let arrangement::Output::PlaceFromSlot {
@@ -169,6 +171,7 @@ fn a_clip_sent_over_placements_carves_them_and_the_undo_gives_everything_back() 
             clip: f.straight.clone(),
             start: Tick(1000),
             linked: false,
+            if_occupied: Default::default(),
         }),
         &mut s,
         &mut ctx,
@@ -235,6 +238,7 @@ fn a_scene_goes_to_the_arrangement_in_one_command_one_undo_and_empty_slots_place
             scene: f.scene_a.clone(),
             start: Tick(20_000),
             linked: false,
+            if_occupied: Default::default(),
         }),
         &mut s,
         &mut ctx,
@@ -264,6 +268,7 @@ fn a_scene_goes_to_the_arrangement_in_one_command_one_undo_and_empty_slots_place
             scene: f.scene_a.clone(),
             start: Tick(20_000),
             linked: true,
+            if_occupied: Default::default(),
         }),
         &mut s,
         &mut ctx,
@@ -292,6 +297,7 @@ fn a_scene_goes_to_the_arrangement_in_one_command_one_undo_and_empty_slots_place
             scene: f.scene_b.clone(),
             start: Tick(20_000),
             linked: true,
+            if_occupied: Default::default(),
         },
     );
     let arrangement::Output::PlaceScene { placements, .. } = out else {
@@ -314,6 +320,7 @@ fn sending_from_the_grid_refuses_what_is_not_in_the_grid_and_what_leaves_the_tim
             clip: f.looped.clone(),
             start: Tick(0),
             linked: false,
+            if_occupied: Default::default(),
         },
     );
     for start in [-1, 1 << 41] {
@@ -323,6 +330,7 @@ fn sending_from_the_grid_refuses_what_is_not_in_the_grid_and_what_leaves_the_tim
                 clip: f.looped.clone(),
                 start: Tick(start),
                 linked: true,
+                if_occupied: Default::default(),
             },
         );
     }
@@ -333,6 +341,7 @@ fn sending_from_the_grid_refuses_what_is_not_in_the_grid_and_what_leaves_the_tim
             clip: f.audio_clip.clone(),
             start: Tick(0),
             linked: false,
+            if_occupied: Default::default(),
         },
     );
     refuse(
@@ -341,6 +350,7 @@ fn sending_from_the_grid_refuses_what_is_not_in_the_grid_and_what_leaves_the_tim
             scene: f.scene_free.clone(),
             start: Tick(0),
             linked: false,
+            if_occupied: Default::default(),
         },
     );
     // A scene that holds an audio clip only places it (AU-6), whole, as a copy.
@@ -360,6 +370,7 @@ fn sending_from_the_grid_refuses_what_is_not_in_the_grid_and_what_leaves_the_tim
             scene: f.scene_free.clone(),
             start: Tick(0),
             linked: false,
+            if_occupied: Default::default(),
         },
     );
     let arrangement::Output::PlaceScene {
@@ -390,6 +401,7 @@ fn sending_from_the_grid_refuses_what_is_not_in_the_grid_and_what_leaves_the_tim
             scene: ::project::SceneId::generate(&mut ids),
             start: Tick(0),
             linked: false,
+            if_occupied: Default::default(),
         },
     );
     refuse(
@@ -398,6 +410,7 @@ fn sending_from_the_grid_refuses_what_is_not_in_the_grid_and_what_leaves_the_tim
             clip: ClipId::generate(&mut ids),
             start: Tick(0),
             linked: false,
+            if_occupied: Default::default(),
         },
     );
 }

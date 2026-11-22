@@ -66,7 +66,7 @@ fn automation_renders_the_same_natively_and_in_wasm() {
     lane(
         &mut s,
         AutomationTarget::Device {
-            device: synth,
+            device: synth.clone(),
             param: "gain".into(),
         },
         (0..16)
@@ -269,4 +269,105 @@ fn a_volume_fade_follows_the_fader_law_in_both_targets() {
     assert!((db + 20.8).abs() < 1.0, "{db} dB at the bar line");
     // The end of the fade is silence.
     assert!(r.rms_in(4.4..4.5) < 1e-6);
+}
+
+/// The curved shapes (#881) render the same natively and in WASM: a volume lane rises from
+/// -60 dB to 0 dB over a bar four times, slow then fast, fast then slow, as an S and in a
+/// straight line; then a pan lane and a synth parameter lane curve over bars 5 to 7, after
+/// the bars measured. Half way through a bar, the slow start is quieter than the straight line
+/// and the fast start louder, the S as loud as the line; at a quarter, the S is quieter.
+#[test]
+fn curved_lanes_render_the_same_natively_and_in_wasm() {
+    let mut s = Session::single_synth();
+    let track = s.state().project.tracks.keys().next().unwrap().clone();
+    let synth = s.state().project.tracks[&track]
+        .devices
+        .keys()
+        .next()
+        .unwrap()
+        .clone();
+    let bar = 3840;
+    let shapes = [Shape::EaseIn, Shape::EaseOut, Shape::Smooth, Shape::Linear];
+    let mut gain = Vec::new();
+    for (i, shape) in shapes.into_iter().enumerate() {
+        let at = i as i64 * bar;
+        gain.push(point(at, -60.0, shape));
+        gain.push(point(at + bar - 1, 0.0, Shape::Step));
+    }
+    lane(
+        &mut s,
+        AutomationTarget::Mixer {
+            param: MixerParam::Gain,
+        },
+        gain,
+    );
+    lane(
+        &mut s,
+        AutomationTarget::Mixer {
+            param: MixerParam::Pan,
+        },
+        vec![
+            point(4 * bar, -1.0, Shape::Smooth),
+            point(5 * bar, 1.0, Shape::EaseOut),
+            point(6 * bar, 0.0, Shape::Step),
+        ],
+    );
+    lane(
+        &mut s,
+        AutomationTarget::Device {
+            device: synth.clone(),
+            param: "gain".into(),
+        },
+        vec![
+            point(4 * bar, 0.2, Shape::EaseIn),
+            point(6 * bar, 0.9, Shape::Step),
+        ],
+    );
+    // A parameter on a logarithmic knob (#881): the cutoff of a Filter after the synth (20 Hz
+    // to 20 kHz), slow then fast up, then an S down, over bars 5 to 7: its curve warps the
+    // knob's travel through `ln` and `exp` in both builds.
+    let commands::Output::Device(commands::device::Output::Insert { device: filter }) =
+        s.exec(Command::Device(commands::device::Command::Insert {
+            track: Some(track.clone()),
+            master: false,
+            kind: "faulk.filter".into(),
+            index: 1,
+        }))
+    else {
+        panic!("a filter")
+    };
+    lane(
+        &mut s,
+        AutomationTarget::Device {
+            device: filter,
+            param: "cutoff".into(),
+        },
+        vec![
+            point(4 * bar, 200.0, Shape::EaseIn),
+            point(5 * bar, 12_000.0, Shape::Smooth),
+            point(6 * bar, 400.0, Shape::Step),
+        ],
+    );
+    s.note_on(57, 110).note_on(64, 100);
+    // 120 BPM: a bar is 2 s.
+    s.run(Command::Transport(transport::Command::Play {}))
+        .render_secs(12.5);
+    let r = parity(s.scenario());
+    r.assert_clean();
+    // The level around a fraction of a bar (its own window of 0.1 s).
+    let at = |bar: f32, part: f32| {
+        r.rms_in(bar * 2.0 + part * 2.0 - 0.05..bar * 2.0 + part * 2.0 + 0.05)
+    };
+    let (ease_in, ease_out, smooth, linear) =
+        (at(0.0, 0.5), at(1.0, 0.5), at(2.0, 0.5), at(3.0, 0.5));
+    assert!(
+        ease_in < 0.8 * linear && 1.2 * linear < ease_out,
+        "{ease_in} {linear} {ease_out}"
+    );
+    assert!((smooth / linear - 1.0).abs() < 0.2, "{smooth} {linear}");
+    assert!(
+        at(2.0, 0.25) < 0.8 * at(3.0, 0.25),
+        "the S starts slower than the line"
+    );
+    r.assert_audible(8.0..12.0, 0.01);
 }

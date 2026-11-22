@@ -1,5 +1,5 @@
 //! #233 through the command layer and the engine: while a low sine plays, an effect is
-//! inserted, bypassed, put back, rebuilt by an insert in front of it, removed, and the
+//! inserted, bypassed, put back, moved by an insert in front of it, removed, and the
 //! instrument is replaced. Each change fades: the largest step between two neighbouring
 //! samples around it stays within what a 5 ms linear crossfade between the steady signal
 //! before and the one after allows. The render is the same natively and in WASM, and is
@@ -74,8 +74,8 @@ fn every_device_change_during_a_note_fades() {
     changes.push(("put the echo back", at));
     s.render_blocks(2 * BLOCKS);
     at += 2 * BLOCKS as usize * QUANTUM as usize;
-    // A filter in front: the echo is built again one slot further (a crossfade from the old
-    // echo to the new one).
+    // A filter in front: the echo moves one slot further as it is (#800) and the filter
+    // fades in.
     insert(&mut s, "faulk.filter");
     changes.push(("insert a filter in front of the echo", at));
     s.render_blocks(2 * BLOCKS);

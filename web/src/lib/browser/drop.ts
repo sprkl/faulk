@@ -6,19 +6,27 @@
  */
 
 import type { Command, Track } from '../generated/protocol'
-import { inGroup } from '../history-group'
+import { runSteps, type RunAll } from '../history-group'
 import { createTrack } from '../track-commands'
 import { insertEffect, insertMasterEffect, setInstrument } from '../device-commands'
 import { instrumentDescriptors } from '../devices'
 import { loadPreset } from '../preset-commands'
-import { chainOf, effectCount, masterChainOf, type ChainEntry } from '../project/chain'
+import { chainOf, effectCount, instrumentOf, masterChainOf, midiEffectCount, type ChainEntry } from '../project/chain'
 import { isMidi } from '../project/tracks'
 import type { BrowserItem } from './catalog'
 
 /** Where an item goes. `selection` is the keyboard's: the selected track, else the master when it is selected, else a new track. */
 export type DropTarget =
   | { type: 'new-track' }
-  | { type: 'track'; track: string; /** Among the effects, 0 right after the instrument; the end of the chain when absent. */ index?: number }
+  | {
+      type: 'track'
+      track: string
+      /**
+       * Among the devices of the item's section: the audio effects (0 right after the instrument) or the MIDI effects (0 at
+       * the start of the chain, #219); the end of that section when absent.
+       */
+      index?: number
+    }
   | { type: 'master'; index?: number }
   | { type: 'selection' }
 
@@ -40,7 +48,10 @@ export interface DropSaid {
     | 'browser.said.insertedMaster'
     | 'browser.said.presetLoaded'
     | 'browser.said.noInstrumentOnMaster'
+    | 'browser.said.noMidiEffectHere'
     | 'browser.said.refused'
+    | 'browser.said.refusedNone'
+    | 'browser.said.refusedPartial'
   /** The device, with its preset when one was loaded ("Reverb, Large Hall"). */
   device: string
   /** The track it went to, by id (the page names it). */
@@ -64,22 +75,25 @@ export const createsTrack = (item: Pick<BrowserItem, 'category'>): boolean => it
 const idsOf = (chain: readonly ChainEntry[]): Set<string> => new Set(chain.map((entry) => entry.id))
 
 /**
- * Runs `steps` as one history group when there are several; a refused step ends the sequence, the group is closed either
- * way. A refused `history.begin_group` (a group is already open, e.g. an agent's turn) is not an error: `end_group` is
- * sent only when this drop opened the group (#643), the group of someone else is never closed here. The steps then run
- * anyway; the history joins them to the open group only when the page (the same author) opened it, otherwise each step
- * is its own undo entry, and undo stays refused until that group ends.
+ * Runs `steps` as one history group when there are several, all or nothing (#869): a refused step stops the sequence and
+ * the steps already applied are taken back with `history.abort_group` (one undo entry or none, never a track with no
+ * device). A refused `history.begin_group` (a group is already open, e.g. an agent's turn) is not an error: the group is
+ * then someone else's, it is never closed or aborted here, the steps run anyway and a refused one leaves the earlier ones
+ * applied (the history joins them to the open group only when the page, the same author, opened it).
  */
-function grouped(host: DropHost, steps: ((host: DropHost) => boolean)[]): boolean {
-  if (steps.length === 1) return steps[0]!(host)
-  return inGroup(
+function grouped(host: DropHost, steps: ((host: DropHost) => boolean)[]): RunAll {
+  return runSteps(
     (command, options) => host.run(command, options),
-    () => {
-      for (const step of steps) if (!step(host)) return false
-      return true
-    },
+    steps.map((step) => () => step(host)),
   )
 }
+
+/** What the person is told when a step was refused: nothing changed, or part of the drop may already be applied. */
+const failed = (item: BrowserItem, done: Extract<RunAll, { ok: false }>, track: string | null): DropResult => ({
+  ok: false,
+  said: { key: done.rolledBack ? 'browser.said.refusedNone' : 'browser.said.refusedPartial', device: label(item) },
+  track: done.rolledBack ? null : track,
+})
 
 /** Puts `item` on `target`. Never throws on a state it did not expect: it says it refused. */
 export function applyItem(host: DropHost, item: BrowserItem, target: DropTarget): DropResult {
@@ -88,15 +102,19 @@ export function applyItem(host: DropHost, item: BrowserItem, target: DropTarget)
   if (at.type === 'selection') {
     const selected = host.selectedTrack()
     // The master shows its own chain: an effect goes there; an instrument has no track in view to replace, so it starts one.
-    if (host.masterSelected()) at = item.category === 'instrument' ? { type: 'new-track' } : { type: 'master' }
+    // A MIDI effect plays on notes: like an instrument, it starts a MIDI track of its own.
+    if (host.masterSelected()) at = item.category === 'effect' ? { type: 'master' } : { type: 'new-track' }
     else at = selected ? { type: 'track', track: selected } : { type: 'new-track' }
   }
   if (at.type === 'master' && item.category === 'instrument') return refused('browser.said.noInstrumentOnMaster')
+  // A MIDI effect plays on notes (#219): the master and an audio track have none.
+  if (at.type === 'master' && item.category === 'midi_effect') return refused('browser.said.noMidiEffectHere')
   if (at.type === 'track') {
     const entry = host.tracks().find((e) => e.id === (at as { track: string }).track)
     if (!entry) return refused()
     // An audio track keeps its clip player: an instrument starts a MIDI track instead.
     if (item.category === 'instrument' && !isMidi(entry.track)) at = { type: 'new-track' }
+    else if (item.category === 'midi_effect' && !isMidi(entry.track)) return refused('browser.said.noMidiEffectHere')
   }
 
   if (at.type === 'new-track') return onNewTrack(host, item)
@@ -125,21 +143,23 @@ function onNewTrack(host: DropHost, item: BrowserItem): DropResult {
     if (item.preset) {
       const preset = item.preset
       steps.push((h) => {
-        const device = find().find((e) => e.effectIndex === null)
+        const device = instrumentOf(find())
         return device ? h.run(loadPreset(device.id, preset.ref)) : false
       })
     }
   } else {
     const preset = item.preset
     steps.push((h) => {
+      const before = idsOf(find())
       if (!h.run(insertEffect(created!, item.kind, 0))) return false
-      const added = find().find((e) => e.effectIndex === 0)
+      const added = find().find((e) => !before.has(e.id))
       return !preset || !added ? true : h.run(loadPreset(added.id, preset.ref))
     })
   }
-  const ok = grouped(host, steps)
+  const done = grouped(host, steps)
   if (created === null) return { ok: false, said: { key: 'browser.said.refused', device: label(item) }, track: null }
-  return { ok, said: { key: 'browser.said.created', device: label(item), track: created }, track: created }
+  if (!done.ok) return failed(item, done, created)
+  return { ok: true, said: { key: 'browser.said.created', device: label(item), track: created }, track: created }
 }
 
 function onTrack(host: DropHost, item: BrowserItem, track: string, index: number | undefined): DropResult {
@@ -148,7 +168,7 @@ function onTrack(host: DropHost, item: BrowserItem, track: string, index: number
   const refused = (): DropResult => ({ ok: false, said: { key: 'browser.said.refused', device: label(item), track }, track })
 
   if (item.category === 'instrument') {
-    const current = chain().find((e) => e.effectIndex === null)
+    const current = instrumentOf(chain())
     const steps: ((host: DropHost) => boolean)[] = []
     // The track already has this instrument: a preset of it loads there, the device itself changes nothing.
     const same = current?.kind === item.kind
@@ -156,18 +176,23 @@ function onTrack(host: DropHost, item: BrowserItem, track: string, index: number
     if (item.preset) {
       const preset = item.preset
       steps.push((h) => {
-        const device = chain().find((e) => e.effectIndex === null)
+        const device = instrumentOf(chain())
         return device ? h.run(loadPreset(device.id, preset.ref)) : false
       })
     }
     if (steps.length === 0) return { ok: true, said: { key: 'browser.said.instrument', device: label(item), track, position: 1 }, track }
-    const ok = grouped(host, steps)
+    const done = grouped(host, steps)
+    if (!done.ok) return failed(item, done, track)
     const key = same ? 'browser.said.presetLoaded' : 'browser.said.instrument'
-    return { ok, said: { key, device: label(item), track, position: 1 }, track }
+    return { ok: true, said: { key, device: label(item), track, position: 1 }, track }
   }
 
   const before = idsOf(chain())
-  const place = Math.max(0, Math.min(index ?? Infinity, effectCount(chain())))
+  // A MIDI effect takes its place among the MIDI effects, before the instrument; an audio effect among the audio effects.
+  const midi = item.category === 'midi_effect'
+  const place = Math.max(0, Math.min(index ?? Infinity, midi ? midiEffectCount(chain()) : effectCount(chain())))
+  // Its place in the whole chain, 1 first, as the person sees the cards.
+  const position = midi ? place + 1 : midiEffectCount(chain()) + (instrumentOf(chain()) ? 1 : 0) + place + 1
   const preset = item.preset
   const steps: ((host: DropHost) => boolean)[] = [(h) => h.run(insertEffect(track, item.kind, place))]
   if (preset) {
@@ -177,8 +202,9 @@ function onTrack(host: DropHost, item: BrowserItem, track: string, index: number
     })
   }
   if (!entry()) return refused()
-  const ok = grouped(host, steps)
-  return { ok, said: { key: 'browser.said.inserted', device: label(item), track, position: place + 2 }, track }
+  const done = grouped(host, steps)
+  if (!done.ok) return failed(item, done, track)
+  return { ok: true, said: { key: 'browser.said.inserted', device: label(item), track, position }, track }
 }
 
 function onMaster(host: DropHost, item: BrowserItem, index: number | undefined): DropResult {
@@ -193,6 +219,7 @@ function onMaster(host: DropHost, item: BrowserItem, index: number | undefined):
       return added ? h.run(loadPreset(added.id, preset.ref)) : false
     })
   }
-  const ok = grouped(host, steps)
-  return { ok, said: { key: 'browser.said.insertedMaster', device: label(item), position: place + 1 }, track: null }
+  const done = grouped(host, steps)
+  if (!done.ok) return failed(item, done, null)
+  return { ok: true, said: { key: 'browser.said.insertedMaster', device: label(item), position: place + 1 }, track: null }
 }

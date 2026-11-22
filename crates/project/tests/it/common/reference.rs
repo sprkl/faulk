@@ -78,6 +78,7 @@ pub fn song() -> Project {
             params: BTreeMap::from([("attack".into(), 0.01), ("wave".into(), 2.0)]),
             state: None,
             preset: None,
+            sidechain: None,
         },
     );
     bass.devices.insert(
@@ -98,6 +99,7 @@ pub fn song() -> Project {
                 id: id(60).to_string(),
                 name: "Warm".into(),
             })),
+            sidechain: None,
         },
     );
     let riff = ClipId(id(20));
@@ -219,6 +221,7 @@ pub fn song() -> Project {
             params: BTreeMap::new(),
             state: None,
             preset: None,
+            sidechain: None,
         },
     );
     let take = ClipId(id(22));

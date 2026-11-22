@@ -74,6 +74,10 @@ Each entry names a symptom you can recognise in the brief, the project or your o
 **Symptom.** The chord sound of deep house and its relatives will not come out of textbook voice leading.
 **Move.** Copy one voicing and transpose the whole block: every note moves the same distance in the same direction (planing). The result is often non-diatonic and the key feels suspended, which is the sound. It comes historically from sampling a single chord and pitching it, and from "chord memory" keyboards; a chord generator or a MIDI tool that adds fixed intervals above the played note does the same today. Voice-led versions of the same progression sound more conventional; choose per section.
 
+### Harmonic travel
+**Symptom.** One chord cycle for the whole track; the parts enter one by one and nothing else changes.
+**Move.** Give each section its own chord picture ([theory.md](theory.md) → Progressions, Chords). Pick from: a new cycle that keeps one chord of the previous one as an anchor; the same cycle started on its third chord; the same chords over a bass pedal, the bass moving only with the next section; the 3rd or 5th in the bass for one pass; a sus chord held through the break and resolved only at the peak; the melody re-harmonised at its second statement (same notes, new chords); a stripped mode change on the same tonic; one borrowed chord, once, on the last pass of a section; chords that change faster and faster before the peak; a chord-less intro (bass or drone and arpeggio only) so the chords arrive as a surprise; one late lift up a whole step or a minor third, with a bar thinned before it and one note held across the cut; the melody's long notes on the 9th, 11th or 13th for one section, back on chord tones at the peak. **Check**: before adding any part, write the cycle of every section; at least two sections differ on paper, or the single cycle is a stated constraint.
+
 ### Humanising with automation
 **Symptom.** Electronic parts are correct and dead.
 **Move.** Let parameters that are usually set once drift slowly over the phrase: attack and decay (which changes the perceived note length), tuning by a few cents at most, then any parameter the instrument exposes. The exact values do not matter, so randomisation often does the job of hand-drawn envelopes. Go further than filter cutoff.
@@ -84,7 +88,7 @@ Each entry names a symptom you can recognise in the brief, the project or your o
 
 ### Dramatic arc
 **Symptom.** Sections exist, but the track is not a journey.
-**Move.** Shape time as exposition (introduce the materials), rising action (vary and intensify them), climax (the densest or most intense moment: the drop, the full chorus), falling action (mirror the rise), dénouement (restate and dissolve, or fade). The arc works at every scale: a melody that rises to its peak and falls, a track, a set. Static genres (dub, minimal) build tension through sound and slow change instead, and need no climax.
+**Move.** Shape time as exposition (introduce the materials), rising action (vary and intensify them), climax (the densest or most intense moment: the drop, the full chorus), falling action (mirror the rise), dénouement (restate and dissolve, or fade). The arc works at every scale: a melody that rises to its peak and falls, a track, a set. Static genres (dub, minimal) build tension through sound and slow change instead, and need no climax. Give the rise a harmonic path too: the climax sounds in another cycle, key or mode than the exposition, not only louder. The ladder (parts entering one by one up to one peak) is one shape among twelve ([forms.md](forms.md)).
 
 ## Finishing
 

@@ -536,6 +536,101 @@ fn remove_ignores_absent_ticks_and_update_needs_present_ones() {
 }
 
 #[test]
+fn every_shape_is_set_by_an_update_undone_saved_and_sent_to_the_engine() {
+    // #881: the five shapes, by their wire names; a point's shape alone changes through
+    // `points.update` with the value it has, one history entry undone to the shape before.
+    for (word, shape) in [
+        ("linear", Shape::Linear),
+        ("step", Shape::Step),
+        ("ease_in", Shape::EaseIn),
+        ("ease_out", Shape::EaseOut),
+        ("smooth", Shape::Smooth),
+    ] {
+        let json = format!(
+            r#"{{"type":"automation.points.update","lane":"01ARZ3NDEKTSV4RRFFQ69G5FAV","points":[{{"tick":0,"value":1,"shape":"{word}"}}]}}"#
+        );
+        let Command::Automation(automation::Command::PointsUpdate { points, .. }) =
+            serde_json::from_str::<Command>(&json).unwrap()
+        else {
+            panic!("{json}")
+        };
+        assert_eq!(points[0].shape, shape);
+        assert_eq!(
+            serde_json::to_value(shape).unwrap(),
+            serde_json::Value::from(word)
+        );
+    }
+    let f = fx();
+    let mut s = f.state.clone();
+    let before = values(&s, &f.track, &f.gain_lane);
+    let (tick, value, mut was) = before[0];
+    for shape in [Shape::EaseIn, Shape::EaseOut, Shape::Smooth, Shape::Step] {
+        let n = s.history.undo.len();
+        let out = go(
+            &mut s,
+            &a(automation::Command::PointsUpdate {
+                lane: f.gain_lane.clone(),
+                points: vec![pt(tick, value, shape)],
+            }),
+        );
+        assert_eq!(
+            out.output,
+            Output::Automation(automation::Output::PointsUpdate { updated: 1 })
+        );
+        assert_eq!(s.history.undo.len(), n + 1, "one entry");
+        let p = lane(&s, &f.track, &f.gain_lane).points[&Tick(tick)];
+        assert_eq!((p.value, p.shape), (value, shape));
+        // The engine plays that curve.
+        let (msgs, _) = snapshot(&s.project, &s.session);
+        let curves: Vec<_> = msgs
+            .iter()
+            .filter_map(|m| match m {
+                ControlMsg::AutomationLaneUpload { points, .. } => {
+                    Some(points.iter().map(|p| p.curve).collect::<Vec<_>>())
+                }
+                _ => None,
+            })
+            .flatten()
+            .collect();
+        assert!(curves.contains(&shape.curve()), "{shape:?}: {curves:?}");
+        // Saved and read back.
+        let mut fs = MemFs::new();
+        save(
+            &mut fs,
+            &s.project,
+            &mut SaveState::new(),
+            None,
+            &SaveOptions::default(),
+        )
+        .unwrap();
+        let opened = open(&fs, &OpenOptions::default()).unwrap();
+        assert_eq!(
+            opened.project.tracks[&f.track].automation, s.project.tracks[&f.track].automation,
+            "{shape:?}"
+        );
+        // Undo gives the shape back.
+        go(&mut s, &undo());
+        assert_eq!(
+            lane(&s, &f.track, &f.gain_lane).points[&Tick(tick)].shape,
+            was
+        );
+        go(&mut s, &redo());
+        was = shape;
+    }
+    // Setting the shape it has changes nothing: no entry.
+    let n = s.history.undo.len();
+    let out = go(
+        &mut s,
+        &a(automation::Command::PointsUpdate {
+            lane: f.gain_lane.clone(),
+            points: vec![pt(tick, value, Shape::Step)],
+        }),
+    );
+    assert!(events(&out).is_empty());
+    assert_eq!(s.history.undo.len(), n);
+}
+
+#[test]
 fn clearing_an_empty_lane_changes_nothing() {
     let f = fx();
     let mut s = f.state.clone();
@@ -1121,7 +1216,7 @@ fn a_cleared_or_deleted_device_lane_gives_its_parameter_back_to_the_stored_value
     let out = w.exec(&a(automation::Command::LaneClear {
         lane: f.effect_lane.clone(),
     }));
-    assert_eq!(param_sets(&out), vec![(1, 0.75)], "{:?}", out.control);
+    assert_eq!(param_sets(&out), vec![(17, 0.75)], "{:?}", out.control);
     // Undo brings the points back and the lane plays again: no ParamSet is needed.
     let out = w.exec(&undo());
     assert!(param_sets(&out).is_empty(), "{:?}", out.control);
@@ -1129,7 +1224,7 @@ fn a_cleared_or_deleted_device_lane_gives_its_parameter_back_to_the_stored_value
     let out = w.exec(&a(automation::Command::LaneDelete {
         lane: f.effect_lane.clone(),
     }));
-    assert_eq!(param_sets(&out), vec![(1, 0.75)], "{:?}", out.control);
+    assert_eq!(param_sets(&out), vec![(17, 0.75)], "{:?}", out.control);
     assert!(
         !w.s.ctx.engine.lane_targets.contains_key(&f.effect_lane),
         "the cached target is dropped with the lane"
@@ -1191,7 +1286,7 @@ fn a_parameter_the_project_does_not_hold_goes_back_to_its_default() {
         .find(|p| p.key == "gain")
         .map(|p| p.default as f32)
         .unwrap();
-    assert_eq!(param_sets(&out), vec![(1, default)], "{:?}", out.control);
+    assert_eq!(param_sets(&out), vec![(17, default)], "{:?}", out.control);
 }
 
 #[test]

@@ -1,0 +1,2 @@
+2026-11-05
+* **Update** (#737): `03-stockage-local.md` says the `.faulkpack` export banner shows from the click (file dialog and preparation included) until the last piece is written and the file closed; `verification.md` > `@full` describes `FULL_WHEN`, which runs `pack-stream`, `pack-longtasks` and `pack-import` whole for a change of `web/src/lib/storage/` (unit tests excepted), the storage banners or the `pack.rs` files.

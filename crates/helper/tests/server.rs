@@ -371,7 +371,10 @@ async fn the_hello_announces_the_engines_epoch_and_what_the_helper_can_do() {
         } => {
             assert_eq!(protocol, PROTOCOL_VERSION);
             assert_eq!(epoch, 0, "a fresh engine");
-            assert!(!capabilities.disk, "the helper writes no project file yet");
+            assert!(
+                capabilities.disk,
+                "the helper reads the project's folder (AU-7)"
+            );
             assert_eq!(capabilities.midi, helper::midi::available());
         }
         other => panic!("expected hello, got {other:?}"),
@@ -1755,6 +1758,62 @@ async fn a_destructive_call_waits_for_the_users_answer_and_a_refusal_reaches_the
 }
 
 #[tokio::test]
+async fn an_audio_file_from_a_link_is_relayed_to_the_page_and_its_typed_answers_reach_the_agent() {
+    // #664: the helper only relays `clip_import_audio_url`; the page asks the user, downloads and
+    // imports. Its clip comes back as the tool's structured content, its refusals typed.
+    let h = start().await;
+    let (mut page, _) = open_session(&h).await;
+    let mut lines = initialize();
+    let kick = "https://example.org/kick.wav";
+    let big = "https://example.org/big.wav";
+    lines.push(tool_call(
+        2,
+        "clip_import_audio_url",
+        serde_json::json!({"track":"t1","url":kick}),
+    ));
+    lines.push(tool_call(
+        3,
+        "clip_import_audio_url",
+        serde_json::json!({"track":"t1","url":big}),
+    ));
+    let running = bridge(h.port, Some(MCP_TOKEN), lines);
+    let media = "ab".repeat(32);
+    // The two calls may reach the page in either order: each is answered by its link.
+    for _ in 0..2 {
+        let ServerMessage::AgentCall { id, command, .. } = next(&mut page).await else {
+            panic!("expected agent.call")
+        };
+        let url = command["url"].as_str().unwrap_or_default().to_owned();
+        assert_eq!(
+            command,
+            serde_json::json!({"type":"clip.import_audio_url","track":"t1","url":url})
+        );
+        let result = if url == kick {
+            AgentResult::Applied {
+                output: serde_json::json!({"type":"clip.import_audio_url","clip":"c1","media":media}),
+            }
+        } else {
+            assert_eq!(url, big);
+            AgentResult::Refused {
+                error: serde_json::json!({"code":"download.too_big","message":"the file is over 192 MiB: nothing changed"}),
+            }
+        };
+        send(&mut page, &ClientMessage::AgentResult { id, result }).await;
+    }
+    let answers = running.await.unwrap();
+    let made = answer(&answers, 2);
+    assert_eq!(made["result"]["isError"], false, "{made}");
+    assert_eq!(
+        made["result"]["structuredContent"],
+        serde_json::json!({"clip":"c1","media":media})
+    );
+    let refused = answer(&answers, 3);
+    assert_eq!(refused["result"]["isError"], true);
+    assert_eq!(result_text(refused)["code"], "command.refused");
+    assert_eq!(result_text(refused)["error"]["code"], "download.too_big");
+}
+
+#[tokio::test]
 async fn a_refusal_of_the_page_reaches_the_agent_as_a_typed_error() {
     let h = start().await;
     let (mut page, _) = open_session(&h).await;
@@ -1907,6 +1966,60 @@ async fn the_stdio_bridge_says_what_to_do_without_a_token_or_a_helper() {
         .unwrap()
         .to_owned();
     assert!(message.contains("not running"), "{message}");
+}
+
+/// #815: a refused MCP request must still be told why when its body is unread. The helper used to
+/// answer 401 and close the connection with the body still in its receive queue; the closing
+/// sent a reset, and on Windows the reset threw the answer away ("connection aborted", os error
+/// 10053), so the bridge told the agent the helper was not running.
+#[tokio::test]
+async fn a_refused_mcp_request_is_answered_even_when_its_body_is_unread() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let h = start().await;
+    let wrong = "ffffffffffffffffffffffffffffffff";
+    // (path, Host, token, status): the refusals of `serve_connection` that a first request meets (the 404 is for a kept-alive connection).
+    let local = format!("127.0.0.1:{}", h.port);
+    let cases = [
+        ("/mcp", local.as_str(), wrong, "401"),
+        ("/mcp", "evil.example", MCP_TOKEN, "403"),
+    ];
+    for (path, host, token, status) in cases {
+        for _ in 0..3 {
+            let mut stream = TcpStream::connect(("127.0.0.1", h.port)).await.unwrap();
+            let body = vec![b' '; 40_000];
+            let head = format!(
+                "POST {path} HTTP/1.1
+Host: {host}
+Authorization: Bearer {token}
+Content-Type: application/json
+Content-Length: {}
+
+",
+                body.len()
+            );
+            stream.write_all(head.as_bytes()).await.unwrap();
+            // The helper answers on the headers alone, and closes.
+            tokio::time::sleep(Duration::from_millis(300)).await;
+            // The body arrives on a connection the helper has already closed: a reset.
+            let _ = stream.write_all(&body).await;
+            tokio::time::sleep(Duration::from_millis(300)).await;
+            // The connection stays open (keep-alive): read the answer's head, not to the end.
+            let mut answer = vec![0u8; 4096];
+            let read = tokio::time::timeout(Duration::from_secs(5), stream.read(&mut answer))
+                .await
+                .expect("the helper must answer");
+            let text = String::from_utf8_lossy(&answer[..read.as_ref().copied().unwrap_or(0)])
+                .into_owned();
+            assert!(
+                read.is_ok(),
+                "{status}: reset before the answer was read: {read:?}"
+            );
+            assert!(
+                text.starts_with(&format!("HTTP/1.1 {status}")),
+                "{status}: {text}"
+            );
+        }
+    }
 }
 
 // --- #608: the control link, for agents in Web mode and without an output --------------------

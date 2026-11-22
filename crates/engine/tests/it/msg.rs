@@ -64,6 +64,12 @@ fn samples() -> Vec<ControlMsg> {
             pan: 0.0,
             mute: false,
         },
+        ControlMsg::SetScale {
+            pitch_classes: 0x0AB5,
+        },
+        ControlMsg::SetKeyChanges {
+            changes: vec![(Tick(3840), 0x0AB5), (Tick(7680), 0)],
+        },
         ControlMsg::TrackCreate {
             track: t,
             kind: TrackKind::Midi,
@@ -102,6 +108,16 @@ fn samples() -> Vec<ControlMsg> {
         ControlMsg::DeviceRemove {
             track: t,
             device: DeviceSlot(0),
+        },
+        ControlMsg::DeviceMove {
+            track: t,
+            from: DeviceSlot(0),
+            to: DeviceSlot(17),
+        },
+        ControlMsg::DeviceSidechain {
+            track: t,
+            device: DeviceSlot(2),
+            source: Some(TrackSlot(9)),
         },
         ControlMsg::DeviceSetEnabled {
             track: t,
@@ -378,7 +394,18 @@ fn limits_fit_under_the_wasm32_cap() {
         + 2 * (LIVE_QUEUE_CAPACITY as u64) * size_of::<LiveEvent>() as u64;
     let inbox = u64::from(MAX_CONTROL_MSG_BYTES) * 2;
     let feedback = Feedback::max_size_for(MAX_TRACKS as usize) as u64;
-    let total = 2 * tables + largest + rings + inbox + feedback;
+    // The graph's latency buffers (#749): one compensation ring and one metronome line for
+    // the whole engine, whatever the number of tracks.
+    let compensation = engine::graph::Graph::latency_bytes(MAX_BLOCK_FRAMES);
+    assert!(
+        compensation < 2 << 20,
+        "{compensation} bytes of compensation"
+    );
+    // The detection inputs (#952): the buffers of the tracks other tracks listen to and the
+    // plan's tables, once for the whole engine.
+    let keys = engine::graph::Graph::key_bytes(MAX_BLOCK_FRAMES);
+    assert!(keys < 1 << 20, "{keys} bytes of detection inputs");
+    let total = 2 * tables + largest + rings + inbox + feedback + compensation + keys;
     eprintln!("worst case of the tables: {} MiB", total >> 20);
     // The devices are not a count: their declared sizes count against the engine memory
     // budget, which the tables' worst case must leave room for.
@@ -414,7 +441,7 @@ fn an_rt_message_is_small_and_sent_by_move() {
         size_of::<Note>()
     );
     assert_eq!(
-        Feedback::size_for(0, 0, 0),
+        Feedback::size_for(0, 0, 0, 0, 0),
         FEEDBACK_HEADER_BYTES + TRACK_METER_BYTES,
         "the output's meter always follows the track meters"
     );
@@ -423,11 +450,13 @@ fn an_rt_message_is_small_and_sent_by_move() {
     assert_eq!(size_of::<ActiveClip>(), ACTIVE_CLIP_BYTES);
     assert_eq!(size_of::<RecordedNote>(), RECORDED_NOTE_WIRE_BYTES);
     assert_eq!(
-        Feedback::size_for(2, 3, 4),
+        Feedback::size_for(2, 3, 4, 5, 2),
         FEEDBACK_HEADER_BYTES
             + 3 * TRACK_METER_BYTES
             + 3 * ACTIVE_CLIP_BYTES
             + 4 * RECORDED_NOTE_WIRE_BYTES
+            + 5 * engine::msg::DEVICE_READOUT_BYTES
+            + 2 * engine::analysis::SPECTRUM_WIRE_BYTES
     );
     // The largest report of the largest session stays small enough for a WebSocket frame.
     assert!(Feedback::max_size_for(limits::MAX_TRACKS as usize) < 256 << 10);
@@ -508,12 +537,23 @@ fn rich_samples() -> Vec<ControlMsg> {
             param: ParamId(9),
         },
         first: 0,
-        total: 1,
-        points: vec![AutomationPoint {
-            tick: Tick(1),
+        total: 5,
+        // Every curve (#881).
+        points: [
+            Curve::Linear,
+            Curve::Step,
+            Curve::EaseIn,
+            Curve::EaseOut,
+            Curve::Smooth,
+        ]
+        .into_iter()
+        .enumerate()
+        .map(|(i, curve)| AutomationPoint {
+            tick: Tick(1 + i as i64),
             value: -0.5,
-            curve: Curve::Linear,
-        }],
+            curve,
+        })
+        .collect(),
     });
     out.push(ControlMsg::DeviceInsert {
         track: TrackSlot(0),
@@ -525,6 +565,11 @@ fn rich_samples() -> Vec<ControlMsg> {
         region: engine::time::LoopRegion::new(Tick(-960), Tick(3840)),
     });
     out.push(ControlMsg::SelectTrack { track: None });
+    out.push(ControlMsg::DeviceSidechain {
+        track: TrackSlot(4),
+        device: DeviceSlot(1),
+        source: None,
+    });
     out.push(ControlMsg::SceneSetSlot {
         track: TrackSlot(1),
         scene: SceneSlot(2),
@@ -599,6 +644,24 @@ fn out_of_range_values_are_bad_payloads() {
         kind: TrackKind::Midi,
     };
     assert_eq!(decode(&create, 4, &[2]), bad(Tag::TrackCreate));
+    // A curve past `Smooth` (4), in the last byte of a lane upload of one point (#881).
+    let upload = ControlMsg::AutomationLaneUpload {
+        lane: LaneSlot(0),
+        track: TrackSlot(0),
+        target: AutomationTarget::MixerGain,
+        first: 0,
+        total: 1,
+        points: vec![AutomationPoint {
+            tick: Tick(0),
+            value: 0.0,
+            curve: engine::msg::Curve::Smooth,
+        }],
+    };
+    let mut bytes = Vec::new();
+    upload.encode(0, 0, &mut bytes).unwrap();
+    let end = bytes.len() - HEADER_BYTES - 1;
+    assert_eq!(bytes[HEADER_BYTES + end], 4);
+    assert_eq!(decode(&upload, end, &[5]), bad(Tag::AutomationLaneUpload));
     let master = ControlMsg::SetMaster {
         gain: 1.0,
         pan: 0.0,

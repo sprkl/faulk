@@ -82,6 +82,7 @@ fn fixture() -> Fx {
             params: BTreeMap::from([("attack".into(), 0.01), ("waveform".into(), 2.0)]),
             state: Some(hash(1)),
             preset: None,
+            sidechain: None,
         },
     );
     let filter = DeviceId::generate(&mut ids);
@@ -98,6 +99,7 @@ fn fixture() -> Fx {
             params: BTreeMap::from([("cutoff".into(), 800.0)]),
             state: None,
             preset: None,
+            sidechain: None,
         },
     );
     let midi_clip = ClipId::generate(&mut ids);
@@ -191,6 +193,7 @@ fn fixture() -> Fx {
             params: BTreeMap::new(),
             state: None,
             preset: None,
+            sidechain: None,
         },
     );
     let audio_clip = ClipId::generate(&mut ids);
@@ -231,6 +234,26 @@ fn fixture() -> Fx {
         },
     );
     project.tracks.insert(audio.clone(), track);
+
+    // A MIDI effect before the MIDI track's synth (#219), its id made last so that the
+    // fixture's other ids stay what they were.
+    let midi_effect = DeviceId::generate(&mut ids);
+    project.tracks.get_mut(&midi).unwrap().devices.insert(
+        midi_effect.clone(),
+        Device {
+            order: OrderKey::between(None, Some(&OrderKey::first())).unwrap(),
+            role: DeviceRole::MidiEffect,
+            enabled: true,
+            source: DeviceSource::Builtin {
+                id: "faulk.stack".into(),
+                version: 1,
+            },
+            params: BTreeMap::from([("strum".into(), 0.05)]),
+            state: None,
+            preset: None,
+            sidechain: None,
+        },
+    );
 
     Fx {
         project,
@@ -445,7 +468,11 @@ fn display_order_is_by_key_then_id() {
         .iter()
         .map(|(id, _)| (*id).clone())
         .collect();
-    assert_eq!(chain, [fx.synth.clone(), fx.filter.clone()]);
+    assert_eq!(chain[1..], [fx.synth.clone(), fx.filter.clone()]);
+    assert_eq!(
+        fx.project.tracks[&fx.midi].devices[&chain[0]].role,
+        DeviceRole::MidiEffect
+    );
     let _ = (fx.scene, fx.player);
 }
 
@@ -516,6 +543,8 @@ fn kind_name(kind: &ViolationKind) -> &'static str {
         PanOutOfRange => "PanOutOfRange",
         TooManyInstruments => "TooManyInstruments",
         InstrumentNotFirst => "InstrumentNotFirst",
+        MidiEffectOutOfPlace => "MidiEffectOutOfPlace",
+        MidiEffectOnAudioTrack => "MidiEffectOnAudioTrack",
         WrongInstrument => "WrongInstrument",
         NotAnEffect => "NotAnEffect",
         BadChannels => "BadChannels",
@@ -524,12 +553,26 @@ fn kind_name(kind: &ViolationKind) -> &'static str {
         BadSampleRate => "BadSampleRate",
         BadPreset => "BadPreset",
         ScaleRoot(_) => "ScaleRoot",
+        KeyChangeTick => "KeyChangeTick",
+        SidechainUnknownTrack => "SidechainUnknownTrack",
+        SidechainSelf => "SidechainSelf",
+        SidechainOnMaster => "SidechainOnMaster",
+        SidechainCycle => "SidechainCycle",
+        SidechainNotTaken => "SidechainNotTaken",
         TooMany { .. } => "TooMany",
     }
 }
 
-const ALL_KINDS: [&str; 35] = [
+const ALL_KINDS: [&str; 43] = [
+    "SidechainUnknownTrack",
+    "SidechainSelf",
+    "SidechainOnMaster",
+    "SidechainCycle",
+    "SidechainNotTaken",
+    "MidiEffectOutOfPlace",
+    "MidiEffectOnAudioTrack",
     "ScaleRoot",
+    "KeyChangeTick",
     "BadPreset",
     "MissingInstrument",
     "BadSampleRate",
@@ -566,6 +609,33 @@ const ALL_KINDS: [&str; 35] = [
     "TooMany",
 ];
 
+/// A Compressor (#952) on `track`, listening to `source`.
+fn keyed(fx: &mut Fx, track: TrackId, source: Option<TrackId>) -> DeviceId {
+    let f = fx.filter.clone();
+    let mut device = midi_track(fx).devices[&f].clone();
+    device.source = DeviceSource::Builtin {
+        id: "faulk.compressor".into(),
+        version: 1,
+    };
+    device.params.clear();
+    device.preset = None;
+    device.sidechain = source;
+    let n = fx
+        .project
+        .tracks
+        .values()
+        .map(|t| t.devices.len())
+        .sum::<usize>();
+    let id = DeviceId::generate(&mut IdGenerator::new(1_800_000_000_000, n as u128));
+    fx.project
+        .tracks
+        .get_mut(&track)
+        .unwrap()
+        .devices
+        .insert(id.clone(), device);
+    id
+}
+
 /// (description, mutation, expected kind name).
 fn cases() -> Vec<(&'static str, Mutation, &'static str)> {
     let midi_note = |n: Note| -> Mutation {
@@ -574,6 +644,52 @@ fn cases() -> Vec<(&'static str, Mutation, &'static str)> {
         })
     };
     vec![
+        (
+            "a sidechain to a track the project does not have",
+            Box::new(|fx| {
+                let (midi, gone) = (
+                    fx.midi.clone(),
+                    TrackId::generate(&mut IdGenerator::new(1_800_000_000_000, 99)),
+                );
+                keyed(fx, midi, Some(gone));
+            }),
+            "SidechainUnknownTrack",
+        ),
+        (
+            "a sidechain to its own track",
+            Box::new(|fx| {
+                let midi = fx.midi.clone();
+                keyed(fx, midi.clone(), Some(midi));
+            }),
+            "SidechainSelf",
+        ),
+        (
+            "a sidechain on the master's chain",
+            Box::new(|fx| {
+                let (midi, audio) = (fx.midi.clone(), fx.audio.clone());
+                let id = keyed(fx, midi.clone(), Some(audio));
+                let device = midi_track(fx).devices.remove(&id).unwrap();
+                fx.project.master_devices.insert(id, device);
+            }),
+            "SidechainOnMaster",
+        ),
+        (
+            "two tracks that listen to each other",
+            Box::new(|fx| {
+                let (midi, audio) = (fx.midi.clone(), fx.audio.clone());
+                keyed(fx, midi.clone(), Some(audio.clone()));
+                keyed(fx, audio, Some(midi));
+            }),
+            "SidechainCycle",
+        ),
+        (
+            "a sidechain on a Filter, which takes none",
+            Box::new(|fx| {
+                let (f, audio) = (fx.filter.clone(), fx.audio.clone());
+                midi_track(fx).devices.get_mut(&f).unwrap().sidechain = Some(audio);
+            }),
+            "SidechainNotTaken",
+        ),
         (
             "a newer format",
             Box::new(|fx| fx.project.format = FORMAT_VERSION + 1),
@@ -588,6 +704,16 @@ fn cases() -> Vec<(&'static str, Mutation, &'static str)> {
                 })
             }),
             "ScaleRoot",
+        ),
+        (
+            "a key change at tick 0",
+            Box::new(|fx| {
+                fx.project.key_changes = vec![project::KeyChange {
+                    tick: Tick(0),
+                    scale: None,
+                }]
+            }),
+            "KeyChangeTick",
         ),
         (
             "project preset with an untrimmed name",
@@ -1177,6 +1303,51 @@ fn cases() -> Vec<(&'static str, Mutation, &'static str)> {
                 midi_track(fx).devices.get_mut(&s).unwrap().order = OrderKey::parse("a5").unwrap();
             }),
             "InstrumentNotFirst",
+        ),
+        (
+            "a MIDI effect after the instrument",
+            Box::new(|fx| {
+                let midi = fx.midi.clone();
+                let first = fx.project.tracks[&midi].devices_in_order()[0].0.clone();
+                midi_track(fx).devices.get_mut(&first).unwrap().order =
+                    OrderKey::parse("a5").unwrap();
+            }),
+            "MidiEffectOutOfPlace",
+        ),
+        (
+            "a MIDI effect after an audio effect",
+            Box::new(|fx| {
+                let midi = fx.midi.clone();
+                let first = fx.project.tracks[&midi].devices_in_order()[0].0.clone();
+                let last = fx.project.tracks[&midi].devices_in_order()[2]
+                    .1
+                    .order
+                    .clone();
+                midi_track(fx).devices.get_mut(&first).unwrap().order =
+                    OrderKey::between(Some(&last), None).unwrap();
+            }),
+            "MidiEffectOutOfPlace",
+        ),
+        (
+            "a MIDI effect on an audio track",
+            Box::new(|fx| {
+                let midi = fx.midi.clone();
+                let first = fx.project.tracks[&midi].devices_in_order()[0].0.clone();
+                let mut device = midi_track(fx).devices.remove(&first).unwrap();
+                device.order = OrderKey::between(None, Some(&OrderKey::first())).unwrap();
+                audio_track(fx).devices.insert(first, device);
+            }),
+            "MidiEffectOnAudioTrack",
+        ),
+        (
+            "a MIDI effect in the master's chain",
+            Box::new(|fx| {
+                let midi = fx.midi.clone();
+                let first = fx.project.tracks[&midi].devices_in_order()[0].0.clone();
+                let device = midi_track(fx).devices.remove(&first).unwrap();
+                fx.project.master_devices.insert(first, device);
+            }),
+            "NotAnEffect",
         ),
         (
             "clip player on a MIDI track",

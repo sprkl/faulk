@@ -177,12 +177,15 @@ export async function streamPack(url: URL, options: DownloadOptions & { sink: { 
 
 /** The name an opened pack is listed under before its project tells its own: the file's name in the link. */
 export function packNameOf(url: URL): string {
+  return lastSegmentOf(url).replace(/\.faulkpack$/i, '') || 'pack'
+}
+
+/** The last part of a link's path, percent-decoded (as it is when it does not decode); empty for none. */
+export function lastSegmentOf(url: URL): string {
   const last = url.pathname.split('/').filter(Boolean).pop() ?? ''
-  let name: string
   try {
-    name = decodeURIComponent(last)
+    return decodeURIComponent(last)
   } catch {
-    name = last
+    return last
   }
-  return name.replace(/\.faulkpack$/i, '') || 'pack'
 }

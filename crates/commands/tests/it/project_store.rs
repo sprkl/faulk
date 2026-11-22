@@ -87,6 +87,7 @@ fn saving_changes_nothing_in_the_project_and_is_never_recorded() {
         cmd::Command::KeepMine {},
         cmd::Command::LoadFolderVersion {},
         cmd::Command::AllowAccess {},
+        cmd::Command::ChooseHelperFolder {},
     ] {
         let mut state = fixture().state;
         let before = state.clone();

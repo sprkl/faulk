@@ -55,6 +55,7 @@ fn song() -> Song {
                 id: warm.to_string(),
                 name: "Warm".into(),
             })),
+            sidechain: None,
         },
     );
     project.tracks.insert(track.clone(), t);

@@ -5,4 +5,5 @@ mod errors;
 mod fixtures;
 mod opus_vectors;
 mod peaks;
+mod size;
 mod support;

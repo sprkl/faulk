@@ -24,6 +24,7 @@ pub mod automation;
 pub mod clip;
 pub mod device;
 pub mod history;
+pub mod key_change;
 pub mod launch;
 pub mod live;
 pub mod marker;

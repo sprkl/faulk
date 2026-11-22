@@ -253,8 +253,11 @@ pub fn event_frame(offset: u32, cursor: usize, frames: usize) -> usize {
 /// the descriptor's bounds and the most events the effect can receive in one block (the
 /// host cuts a block into sub-blocks when the events of its tables fill a fixed room, so
 /// the input is bounded whatever their size, MO-4; an effect after another is sized from
-/// the output of the largest before it). Overflow is a safety net for an effect that
-/// breaks its declared bounds: one slot is kept in reserve; when a push is refused, the
+/// the output of the largest before it), at most [`MAX_MIDI_OUTPUT_EVENTS`] and within the
+/// budget the chain's effects share (`crate::engine::CHAIN_MIDI_OUTPUT_EVENTS`): effects that
+/// each multiply their notes, chained, would otherwise multiply the buffers too (#219).
+/// Overflow is a safety net for an effect that breaks its declared bounds, or for a chain
+/// past that cap: one slot is kept in reserve; when a push is refused, the
 /// buffer counts it and [`EventBuffer::finish`] appends an [`Event::AllNotesOff`] in that
 /// slot, after every event pushed, so that a lost note-off never leaves a note stuck.
 #[derive(Debug)]
@@ -374,6 +377,68 @@ pub struct Transport {
     pub signature: TimeSignature,
     /// Position of the block's first frame, in ticks (fractional: 960 per quarter note).
     pub position_ticks: f64,
+    /// The project's scale (`ControlMsg::SetScale`, #690): what a MIDI effect that works "in
+    /// the scale" reads. Empty when the project has none (chromatic).
+    pub scale: PitchSet,
+    /// The places of the block where the key changes (#953), after the scale above.
+    pub scale_switches: ScaleSwitches,
+}
+
+impl Transport {
+    /// The scale in force at `frame` of the block: the key of the project at the tick the
+    /// frame plays (key changes, #953).
+    pub fn scale_at(&self, frame: usize) -> PitchSet {
+        self.scale_switches.at(frame).unwrap_or(self.scale)
+    }
+}
+
+/// The key changes inside one block (#953): `(frame, scale from it)`, in frame order, in a
+/// fixed array (the transport is `Copy` and built on the audio thread).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ScaleSwitches {
+    len: u8,
+    frames: [u32; ScaleSwitches::CAPACITY],
+    sets: [u16; ScaleSwitches::CAPACITY],
+}
+
+impl ScaleSwitches {
+    /// Most switches in one block; the later ones are dropped.
+    pub const CAPACITY: usize = 8;
+    /// No switch.
+    pub const NONE: ScaleSwitches = ScaleSwitches {
+        len: 0,
+        frames: [0; Self::CAPACITY],
+        sets: [0; Self::CAPACITY],
+    };
+
+    /// Adds a switch after the ones already there; `false` (and dropped) when full.
+    pub fn push(&mut self, frame: u32, scale: PitchSet) -> bool {
+        let i = self.len as usize;
+        if i < Self::CAPACITY {
+            self.frames[i] = frame;
+            self.sets[i] = scale.bits();
+            self.len += 1;
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.len as usize
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    /// The scale of the last switch at or before `frame`; `None` before the first.
+    pub fn at(&self, frame: usize) -> Option<PitchSet> {
+        (0..self.len as usize)
+            .rev()
+            .find(|&i| self.frames[i] as usize <= frame)
+            .map(|i| PitchSet::from_bits(self.sets[i]))
+    }
 }
 
 impl Default for Transport {
@@ -383,7 +448,39 @@ impl Default for Transport {
             tempo: Tempo::default(),
             signature: TimeSignature::default(),
             position_ticks: 0.0,
+            scale: PitchSet::EMPTY,
+            scale_switches: ScaleSwitches::NONE,
         }
+    }
+}
+
+/// A set of pitch classes, bit `c` for pitch class `c` (0 = C … 11 = B): the notes of a
+/// scale, whatever its root. Empty: no scale.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct PitchSet(u16);
+
+impl PitchSet {
+    /// No pitch class: a project without a scale.
+    pub const EMPTY: PitchSet = PitchSet(0);
+    /// The bits that name a pitch class.
+    pub const MASK: u16 = 0x0FFF;
+
+    /// The set of these bits; the bits above the twelfth are ignored.
+    pub const fn from_bits(bits: u16) -> Self {
+        Self(bits & Self::MASK)
+    }
+
+    pub const fn bits(self) -> u16 {
+        self.0
+    }
+
+    pub const fn is_empty(self) -> bool {
+        self.0 == 0
+    }
+
+    /// Whether pitch class `pc` (taken modulo 12) is in the set.
+    pub const fn contains(self, pc: u8) -> bool {
+        self.0 & (1 << (pc % 12)) != 0
     }
 }
 
@@ -398,14 +495,21 @@ pub struct MidiOutput {
     pub per_block: u32,
 }
 
+/// The most events a MIDI effect's output buffer holds, the reserved slot included (#219):
+/// about 1.3 MB of events. A single effect within the contract's bounds never reaches it from a
+/// track's input; a chain of effects that each multiply their notes is capped there, past which
+/// [`EventBuffer`]'s safety net ends the notes.
+pub const MAX_MIDI_OUTPUT_EVENTS: usize = 1 << 16;
+
 impl MidiOutput {
     /// Capacity of the output buffer for `input_events` events in a block, the reserved
-    /// slot included.
+    /// slot included, at most [`MAX_MIDI_OUTPUT_EVENTS`].
     pub fn capacity(&self, input_events: usize) -> usize {
         (self.per_input as usize)
             .saturating_mul(input_events)
             .saturating_add(self.per_block as usize)
             .saturating_add(1)
+            .min(MAX_MIDI_OUTPUT_EVENTS)
     }
 }
 
@@ -431,6 +535,16 @@ pub struct AudioIo<'a> {
     pub left: &'a mut [f32],
     pub right: &'a mut [f32],
     pub events_out: &'a mut EventBuffer,
+}
+
+/// The detection input of a device that listens to another track (#952): that track's signal
+/// over the frames of the block being rendered, after its devices and before its fader, pan
+/// and mute ([`crate::graph`] > Sidechain). Both channels hold at least the block's frames;
+/// silence when the source gave nothing.
+#[derive(Clone, Copy, Debug)]
+pub struct Key<'a> {
+    pub left: &'a [f32],
+    pub right: &'a [f32],
 }
 
 /// What a device is built for, in `prepare`.
@@ -461,13 +575,31 @@ pub trait Device: Send {
     /// Renders one block: applies `events` at their offsets, reads and writes `io`.
     fn process(&mut self, ctx: &BlockCtx, events: &[Event], io: &mut AudioIo<'_>);
 
+    /// Renders one block as [`Device::process`] does, with `key` the signal of the track its
+    /// detection listens to (#952, a sidechain; `None`: it listens to itself). The graph calls
+    /// it only for a device whose descriptor declares [`DeviceDescriptor::sidechain`] and that
+    /// has a source; the default ignores `key`.
+    fn process_keyed(
+        &mut self,
+        ctx: &BlockCtx,
+        events: &[Event],
+        io: &mut AudioIo<'_>,
+        key: Option<Key<'_>>,
+    ) {
+        let _ = key;
+        self.process(ctx, events, io);
+    }
+
     /// Sets a parameter as a [`Event::ParamValue`] at offset 0 of the next block would.
     fn set_param(&mut self, id: ParamId, value: f32);
 
     /// Clears the DSP state (voices, tails) and snaps smoothed parameters to their
     /// targets; parameter values are kept. The engine also calls it on the audio thread when
-    /// an audio effect is switched on or off: it must take constant time and allocate nothing
-    /// (never wipe a large buffer there: hide its content with a counter or a flag).
+    /// an audio effect or a MIDI effect is switched on or off (a MIDI effect on every switch,
+    /// #219: while it is off it never sees the release its switch sends the instrument): it
+    /// must take constant time, O(1) whatever the notes or the tail it holds, and allocate
+    /// nothing (never wipe a large buffer or a table there: hide its content with a counter
+    /// or a flag).
     ///
     /// It is also the hard cut of `ControlMsg::AllSoundOff` (#331): after a fade of the output,
     /// the engine calls it on every device of every track, so a device must leave no voice
@@ -486,6 +618,66 @@ pub trait Device: Send {
     /// a field: no allocation, no lock.
     fn gain_reduction_db(&self) -> f32 {
         0.0
+    }
+
+    /// The latency this device adds now, in frames: how many frames after an input sample
+    /// the output sample it becomes comes out (a look-ahead, #159); 0 for a device that adds
+    /// none. It may change with the parameters, and never goes above
+    /// [`Device::max_latency_frames`] (the graph bounds it there). The graph compensates it
+    /// (#749, [`crate::graph`] > Latency): every track, the master and the metronome stay on
+    /// one timing, and a bypassed device keeps its latency. It reads a field: no allocation,
+    /// no lock.
+    fn latency_frames(&self) -> u32 {
+        0
+    }
+
+    /// The live value of one of this device's parameters after the last block, when the
+    /// device moves it by itself (the Filter's cutoff under its LFO and envelope, #686), for the
+    /// visual feedback: the parameter and its value, in the parameter's unit, finite. `None`
+    /// for a device that moves none. It reads a field: no allocation, no lock.
+    fn readout(&self) -> Option<(ParamId, f32)> {
+        None
+    }
+
+    /// The most [`Device::latency_frames`] returns for this instance (at the rate it was built
+    /// for), whatever its parameters: `prepare` sizes the device's bypass line from it (#749),
+    /// which the device's [`DeviceDescriptor::memory_bytes`] counts
+    /// ([`crate::latency::Latent::bytes_for`] at [`MAX_SAMPLE_RATE`]). 0 for a device that adds
+    /// no latency.
+    fn max_latency_frames(&self) -> u32 {
+        0
+    }
+
+    /// The track this device's detection listens to (#952, `ControlMsg::DeviceSidechain`),
+    /// `None` for its own: a device that declares [`DeviceDescriptor::sidechain`] keeps what
+    /// [`Device::set_sidechain`] gave it (a field: no allocation); the default listens to its
+    /// own track.
+    fn sidechain(&self) -> Option<crate::msg::TrackSlot> {
+        None
+    }
+
+    /// Sets the track this device's detection listens to (#952), on the audio thread or by
+    /// `prepare`. Ignored by a device that does not declare [`DeviceDescriptor::sidechain`].
+    fn set_sidechain(&mut self, source: Option<crate::msg::TrackSlot>) {
+        let _ = source;
+    }
+
+    /// The graph's bypass line of a device with a latency (#749): `prepare` wraps such a
+    /// device in [`crate::latency::Latent`], which answers here. A device leaves it to this
+    /// default.
+    fn bypass(&mut self) -> Option<&mut crate::latency::Bypass> {
+        None
+    }
+
+    /// For a device whose panel draws a spectrum (#156, [`crate::analysis`]): copies the last
+    /// frames of its output, the mono sum, oldest first, into the start of `out`, and returns how
+    /// many it wrote (at most `out.len()`; [`crate::analysis::window_len`] at its rate once it
+    /// has rendered that many since it was built or reset). 0, the default, for a device that
+    /// analyses nothing or has nothing yet. Called by the host on the audio thread about 30
+    /// times a second: it copies from a buffer the factory allocated, no allocation, no lock.
+    fn analysis_window(&self, out: &mut [f32]) -> usize {
+        let _ = out;
+        0
     }
 }
 
@@ -509,6 +701,10 @@ pub enum Unit {
     Semitones,
     Cents,
     Percent,
+    /// An angle, in degrees (a phase).
+    Degrees,
+    /// A frequency ratio, in octaves (a depth of modulation: 1 octave doubles the frequency).
+    Octaves,
 }
 
 /// How a control maps its travel to the value.
@@ -607,6 +803,10 @@ pub struct DeviceDescriptor {
     /// row (a drum kit: one sound per key). Empty for a pitched instrument and for the other
     /// roles. Sorted by key.
     pub named_keys: &'static [NamedKey],
+    /// Whether the device can listen to another track for its detection (#952, a sidechain):
+    /// the project then stores a detection source for it, and the graph gives it that track's
+    /// signal through [`Device::process_keyed`]. Only an audio effect declares it.
+    pub sidechain: bool,
     pub params: &'static [ParamDescriptor],
 }
 
@@ -636,6 +836,8 @@ pub enum DescriptorError {
     /// `named_keys` has a key above 127, a key out of order or repeated, a name that is empty,
     /// not ASCII or with surrounding spaces, or is set on a role other than an instrument.
     BadNamedKeys,
+    /// `sidechain` set on a role other than an audio effect (#952).
+    BadSidechain,
     /// More than [`MAX_PARAMS_PER_DEVICE`] parameters.
     TooManyParams,
     /// Two parameters share an id or a key.
@@ -702,6 +904,9 @@ impl DeviceDescriptor {
             && self.named_keys.windows(2).all(|w| w[0].key < w[1].key);
         if !keys_ok {
             return Err(DescriptorError::BadNamedKeys);
+        }
+        if self.sidechain && self.role != DeviceRole::Effect {
+            return Err(DescriptorError::BadSidechain);
         }
         if self.params.len() > MAX_PARAMS_PER_DEVICE {
             return Err(DescriptorError::TooManyParams);

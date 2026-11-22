@@ -113,16 +113,15 @@ test('the clips are named cells, reached by the arrows, moved by Alt+arrows, ope
   await page.keyboard.press('Control+z')
   await expect.poll(async () => (await blocks(page)).map((b) => b.start)).toEqual(before.map((b) => b.start))
 
-  // A move onto another clip carves it, and the live region says so: with the snap on bars, the first Synth clip moved twice
-  // lands on the second.
+  // A move onto another clip is refused and the live region names it (#805): with the snap on bars, the first Synth clip moved
+  // twice would land on the second, so the second press changes nothing.
   await page.getByTestId('arr-snap').selectOption('bar')
   await cells.first().focus()
   await page.keyboard.press('ArrowRight')
   await page.keyboard.press('ArrowLeft')
   await page.keyboard.press('Alt+ArrowRight')
   await page.keyboard.press('Alt+ArrowRight')
-  await expect(page.getByTestId('arr-said')).toHaveText(/Clips cut under it: 1/)
-  await page.keyboard.press('Control+z')
+  await expect(page.getByTestId('arr-said')).toHaveText(/^Not moved: .*, bars 3 to 3, is in the way/)
   await page.keyboard.press('Control+z')
   await expect.poll(async () => (await blocks(page)).map((b) => b.start)).toEqual(before.map((b) => b.start))
 
@@ -172,9 +171,9 @@ test('the notes are named cells: arrows move between them, Alt+arrows move and t
   const focused = page.locator('[data-testid=roll-item]:focus')
   await cells.first().focus()
   await expect(focused).toHaveAccessibleName(/^C4, bar 1 beat 1, 1 beat, velocity 100/)
-  // Right: the next note in time (the chord's top first); Down: the nearest lower note.
+  // Right: the next note in time (the chord's top first), the selection unchanged (#771); Down: the nearest lower note.
   await page.keyboard.press('ArrowRight')
-  await expect(focused).toHaveAccessibleName(/^G4, bar 1 beat 2, 0.5 beats, velocity 80, selected$/)
+  await expect(focused).toHaveAccessibleName(/^G4, bar 1 beat 2, 0.5 beats, velocity 80$/)
   await page.keyboard.press('ArrowDown')
   await expect(focused).toHaveAccessibleName(/^E4, bar 1 beat 2/)
   // Alt+Up transposes it by a semitone, as one command (one history entry); Alt+Right moves it by the snap step.
@@ -251,34 +250,44 @@ test('after Ctrl+D the copies are the selection and the focus; Shift+arrow from 
   expect(await selection()).toEqual([a!.id, b!.id].sort())
   await expect(arr).toHaveAttribute('data-selected-count', '2')
 
-  // With nothing selected (a click on an empty row clears it), Ctrl+D copies the keyboard-focused clip.
+  // With nothing selected (a click on an empty row clears it), Ctrl+D on the keyboard-focused clip is refused when the clip after it
+  // is there (#805): the first track holds six bars of clips.
   const stage = page.getByTestId('arr-stage')
   const box = (await stage.boundingBox())!
   const ppt = Number(await stage.getByTestId('timegrid').getAttribute('data-px-per-tick'))
-  await page.mouse.click(box.x + 100 * ppt, box.y + RULER + 2 * LANE + LANE / 2)
+  const clear = () => page.mouse.click(box.x + 100 * ppt, box.y + RULER + 2 * LANE + LANE / 2)
+  await clear()
   await expect(arr).toHaveAttribute('data-selected-count', '0')
   await cell(a!.id).focus()
   await page.keyboard.press('Control+d')
+  await expect(page.getByTestId('arr-said')).toHaveText(/Not copied/)
+  await expect(arr).toHaveAttribute('data-block-count', '6')
+
+  // On the second track, where the place after is free, it copies the focused clip.
+  await clipAt(page, 1, 0)
+  const c = (await blocks(page)).find((x) => x.row === 1)!
+  await clear()
+  await expect(arr).toHaveAttribute('data-selected-count', '0')
+  await cell(c.id).focus()
+  await page.keyboard.press('Control+d')
   const after = await selection()
   expect(after).toHaveLength(1)
-  expect(after).not.toContain(a!.id)
+  expect(after).not.toContain(c.id)
   // The copy is of the focused clip: it sits one clip length after it (the clip is a bar long).
   const copy = (await blocks(page)).find((x) => x.id === after[0])
-  expect(copy?.row).toBe(a!.row)
-  expect(copy?.start).toBe(a!.start + 3840)
+  expect(copy?.row).toBe(c.row)
+  expect(copy?.start).toBe(c.start + 3840)
   // A pointer click on a clip moves the keyboard focus off the cell that held it: Ctrl+D then copies the clicked clip, not the cell.
-  await cell(a!.id).focus()
-  await page.mouse.click(box.x + (b!.start + 1920) * ppt, box.y + RULER + LANE / 2)
+  await cell(c.id).focus()
+  await page.mouse.click(box.x + (copy!.start + 1920) * ppt, box.y + RULER + LANE + LANE / 2)
   const clicked = await selection()
-  expect(clicked).toHaveLength(1)
-  expect(clicked).not.toContain(a!.id)
-  const target = (await blocks(page)).find((x) => x.id === clicked[0])!
+  expect(clicked).toEqual([copy!.id])
   await page.keyboard.press('Control+d')
   const viaPointer = await selection()
   expect(viaPointer).toHaveLength(1)
-  expect(viaPointer).not.toContain(clicked[0])
+  expect(viaPointer).not.toContain(copy!.id)
   const fromPointer = (await blocks(page)).find((x) => x.id === viaPointer[0])
-  expect(fromPointer?.start).toBe(target.start + 3840)
+  expect(fromPointer?.start).toBe(copy!.start + 3840)
   expect(errors).toEqual([])
 })
 
@@ -468,6 +477,9 @@ test('a clip of 8 bars is repeated up to bar 64 as linked placements, from the k
   await field.fill('24')
   await page.keyboard.press('Enter')
   await expect(arr).toHaveAttribute('data-block-count', '3')
+  // The menu's repeat is refused over copies (#805): take them away first, so that it has free ground.
+  await page.keyboard.press('Control+z')
+  await expect(arr).toHaveAttribute('data-block-count', '1')
 
   const stage = page.getByTestId('arr-stage')
   const box = (await stage.boundingBox())!
@@ -507,7 +519,7 @@ test('a lone clip is selected from the keyboard by Shift+arrow, then Ctrl+D copi
   await expect(arr).toHaveAttribute('data-block-count', '2')
 
   // Focused and not selected: Alt+arrow moves it and Delete removes it, without any selection step.
-  const [first] = (await blocks(page)).sort((x, y) => x.start - y.start)
+  const [, first] = (await blocks(page)).sort((x, y) => x.start - y.start)
   await clearSelection(page)
   await expect(arr).toHaveAttribute('data-selected-count', '0')
   await page.locator(`[data-testid=arr-item][data-block="${first!.id}"]`).focus()

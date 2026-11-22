@@ -47,6 +47,8 @@ pub const NOTE_WIRE_BYTES: usize = 21;
 pub const POINT_WIRE_BYTES: usize = 13;
 /// Bytes of a [`Placement`] on the wire.
 pub const PLACEMENT_WIRE_BYTES: usize = 33;
+/// Bytes of one key change on the wire: its tick and its pitch-class bits.
+pub const KEY_CHANGE_WIRE_BYTES: usize = 10;
 /// Bytes of one `(param id, value)` pair of a device's initial state.
 pub const STATE_PAIR_BYTES: usize = 8;
 
@@ -262,6 +264,9 @@ impl<'a> Reader<'a> {
         match self.u8()? {
             0 => Ok(Curve::Step),
             1 => Ok(Curve::Linear),
+            2 => Ok(Curve::EaseIn),
+            3 => Ok(Curve::EaseOut),
+            4 => Ok(Curve::Smooth),
             _ => Err(Bad::Payload),
         }
     }
@@ -432,6 +437,14 @@ impl ControlMsg {
                 w.f32(*pan);
                 w.bool(*mute);
             }
+            ControlMsg::SetScale { pitch_classes } => w.u16(*pitch_classes),
+            ControlMsg::SetKeyChanges { changes } => {
+                w.count(changes.len());
+                for (tick, bits) in changes {
+                    w.i64(tick.0);
+                    w.u16(*bits);
+                }
+            }
             ControlMsg::TrackCreate { track, kind } => {
                 w.u32(track.0);
                 w.u8(*kind as u8);
@@ -483,6 +496,21 @@ impl ControlMsg {
             ControlMsg::DeviceRemove { track, device } => {
                 w.u32(track.0);
                 w.u16(device.0);
+            }
+            ControlMsg::DeviceMove { track, from, to } => {
+                w.u32(track.0);
+                w.u16(from.0);
+                w.u16(to.0);
+            }
+            ControlMsg::DeviceSidechain {
+                track,
+                device,
+                source,
+            } => {
+                w.u32(track.0);
+                w.u16(device.0);
+                w.bool(source.is_some());
+                w.u32(source.map_or(0, |t| t.0));
             }
             ControlMsg::DeviceSetEnabled {
                 track,
@@ -673,6 +701,20 @@ impl ControlMsg {
                 pan: r.f32()?,
                 mute: r.bool()?,
             },
+            Tag::SetScale => ControlMsg::SetScale {
+                pitch_classes: r.u16()?,
+            },
+            Tag::SetKeyChanges => {
+                let changes = r.list(KEY_CHANGE_WIRE_BYTES, |r| Ok((r.tick()?, r.u16()?)))?;
+                // The audio side searches the table: it holds only a sorted one.
+                check(changes.len() <= limits::MAX_KEY_CHANGES as usize)?;
+                let mut previous = 0;
+                for (tick, _) in &changes {
+                    check(tick.0 > previous)?;
+                    previous = tick.0;
+                }
+                ControlMsg::SetKeyChanges { changes }
+            }
             Tag::TrackCreate => ControlMsg::TrackCreate {
                 track: r.track()?,
                 kind: r.track_kind()?,
@@ -726,6 +768,16 @@ impl ControlMsg {
             Tag::DeviceRemove => ControlMsg::DeviceRemove {
                 track: r.track()?,
                 device: r.device()?,
+            },
+            Tag::DeviceMove => ControlMsg::DeviceMove {
+                track: r.track()?,
+                from: r.device()?,
+                to: r.device()?,
+            },
+            Tag::DeviceSidechain => ControlMsg::DeviceSidechain {
+                track: r.track()?,
+                device: r.device()?,
+                source: r.option(Reader::track)?,
             },
             Tag::DeviceSetEnabled => ControlMsg::DeviceSetEnabled {
                 track: r.track()?,

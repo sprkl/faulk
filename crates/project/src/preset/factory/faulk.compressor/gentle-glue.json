@@ -5,9 +5,16 @@
   "name": "Gentle Glue",
   "params": {
     "attack": 0.0001,
+    "detection": 0.0,
+    "knee": 6.0,
+    "lookahead": 0.0,
     "makeup": 9.3,
+    "mix": 1.0,
     "ratio": 8.0,
     "release": 0.02,
+    "release_mode": 0.0,
+    "sidechain_freq": 100.0,
+    "sidechain_hpf": 0.0,
     "threshold": -22.0
   },
   "version": 1

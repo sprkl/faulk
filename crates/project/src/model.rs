@@ -27,7 +27,15 @@ use std::collections::{BTreeMap, BTreeSet};
 /// as corrupt.
 /// Format 5 (#695): the project may hold a key and scale (`scale`); a build of format 4 would
 /// refuse the field as corrupt.
-pub const FORMAT_VERSION: u32 = 5;
+/// Format 6 (#219): a track's chain may hold MIDI effects (role `midi_effect`), before its
+/// instrument; a build of format 5 would refuse the role as corrupt.
+/// Format 7 (#881): an automation point may have the shape `ease_in`, `ease_out` or `smooth`
+/// (a lane file's word, a lane blob's byte 2, 3 or 4); a build of format 6 would refuse it as
+/// corrupt.
+/// Format 9 (#953): the project may hold key changes (`key_changes`); a build of format 8 would
+/// refuse the field as corrupt. Format 8 (#952): a device may name the track its detection
+/// listens to (`sidechain`).
+pub const FORMAT_VERSION: u32 = 9;
 
 /// The built-in instrument of audio tracks: the clip player.
 pub const CLIP_PLAYER: &str = "faulk.clip_player";
@@ -63,6 +71,11 @@ pub struct Project {
     /// is chromatic and every tool behaves as without a scale.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scale: Option<crate::scale::Scale>,
+    /// The key changes (#953): from the bar that starts at each one's tick, the project is in
+    /// that key instead of the one before. Sorted by tick, at most one per tick, never at tick
+    /// 0 (the starting key is `scale`). Absent (not written) when there are none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub key_changes: Vec<KeyChange>,
     /// The rows of the launch grid.
     #[serde(deserialize_with = "unique_map")]
     pub scenes: BTreeMap<SceneId, Scene>,
@@ -112,6 +125,17 @@ pub struct Marker {
     pub tick: Tick,
     /// Its name: trimmed, not empty, at most 200 characters.
     pub name: String,
+}
+
+/// A key change (#953): from `tick` on (a bar start), the project is in `scale`, `None` being
+/// no scale (chromatic) like a project without one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct KeyChange {
+    /// Where it stands on the timeline, in ticks: after 0, at most [`crate::limits::MAX_TICK`].
+    pub tick: Tick,
+    /// The key and scale from there; `null` for none.
+    pub scale: Option<crate::scale::Scale>,
 }
 
 /// A tempo from a tick on.
@@ -292,14 +316,25 @@ pub struct Device {
     /// absent when none, so that a device without one writes the same file as before.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub preset: Option<Box<DevicePreset>>,
+    /// The track the device's detection listens to (#952, a sidechain): another track of the
+    /// project, for a device of a track's chain whose kind declares it (the Compressor);
+    /// absent when it listens to its own track, so that such a device writes the same file
+    /// as before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sidechain: Option<TrackId>,
 }
 
-/// What a device does in the chain.
+/// What a device does in the chain. A track's chain is, in order, its MIDI effects, its
+/// instrument (at most one), then its audio effects; the master's holds audio effects only.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum DeviceRole {
+    /// Notes in, sound out: the sound of the track.
     Instrument,
+    /// An audio effect: sound in, sound out, after the instrument.
     Effect,
+    /// Notes in, notes out, before the instrument, on a MIDI track only (#219).
+    MidiEffect,
 }
 
 /// Where a device comes from. Third-party plugins come after the MVP.
@@ -551,12 +586,78 @@ pub struct AutomationPoint {
     pub shape: Shape,
 }
 
-/// The shape of the transition from a point to the next one.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+/// The shape of the transition from a point to the next one (#881). `Linear` is a straight
+/// line along the parameter's knob (in its unit, in the logarithm of the value for a
+/// logarithmic parameter), along the fader's travel for a volume lane (#389); `Step`
+/// holds the value until the next point; `EaseIn` (slow, then fast), `EaseOut` (fast, then
+/// slow) and `Smooth` (an S, slow at both ends) follow the same line warped in time, by
+/// `t²`, `t (2 − t)` and `t² (3 − 2t)` of the progress `t` (`engine::automation::warp`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Shape {
+    #[default]
     Linear,
     Step,
+    EaseIn,
+    EaseOut,
+    Smooth,
+}
+
+impl Shape {
+    /// Every shape, in the order the interface lists them.
+    pub const ALL: [Shape; 5] = [
+        Shape::Linear,
+        Shape::Step,
+        Shape::EaseIn,
+        Shape::EaseOut,
+        Shape::Smooth,
+    ];
+
+    /// The curve the engine plays for this shape.
+    pub fn curve(self) -> engine::msg::Curve {
+        use engine::msg::Curve;
+        match self {
+            Shape::Linear => Curve::Linear,
+            Shape::Step => Curve::Step,
+            Shape::EaseIn => Curve::EaseIn,
+            Shape::EaseOut => Curve::EaseOut,
+            Shape::Smooth => Curve::Smooth,
+        }
+    }
+
+    /// The word of the shape in a lane file and in JSON (`linear`, `step`, `ease_in`,
+    /// `ease_out`, `smooth`).
+    pub fn keyword(self) -> &'static str {
+        match self {
+            Shape::Linear => "linear",
+            Shape::Step => "step",
+            Shape::EaseIn => "ease_in",
+            Shape::EaseOut => "ease_out",
+            Shape::Smooth => "smooth",
+        }
+    }
+
+    /// The shape of a keyword ([`keyword`](Self::keyword)), if any.
+    pub fn from_keyword(word: &str) -> Option<Shape> {
+        Shape::ALL.into_iter().find(|s| s.keyword() == word)
+    }
+
+    /// The byte of the shape in a lane's blob: 0 linear, 1 step, 2 ease in, 3 ease out, 4
+    /// smooth.
+    pub fn byte(self) -> u8 {
+        match self {
+            Shape::Linear => 0,
+            Shape::Step => 1,
+            Shape::EaseIn => 2,
+            Shape::EaseOut => 3,
+            Shape::Smooth => 4,
+        }
+    }
+
+    /// The shape of a blob byte ([`byte`](Self::byte)), if any.
+    pub fn from_byte(byte: u8) -> Option<Shape> {
+        Shape::ALL.into_iter().find(|s| s.byte() == byte)
+    }
 }
 
 impl Project {
@@ -576,6 +677,7 @@ impl Project {
             }],
             transport: TransportSettings::default(),
             scale: None,
+            key_changes: Vec::new(),
             scenes: BTreeMap::new(),
             master: Mixer::default(),
             master_devices: BTreeMap::new(),
@@ -583,6 +685,16 @@ impl Project {
             tracks: BTreeMap::new(),
             markers: BTreeMap::new(),
             presets: BTreeMap::new(),
+        }
+    }
+
+    /// The key and scale in force at `tick` (#953): the last key change at or before it, else
+    /// the starting key. `None` is no scale.
+    pub fn scale_at(&self, tick: Tick) -> Option<crate::scale::Scale> {
+        let after = self.key_changes.partition_point(|c| c.tick <= tick);
+        match after.checked_sub(1) {
+            Some(i) => self.key_changes[i].scale,
+            None => self.scale,
         }
     }
 

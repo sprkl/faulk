@@ -45,6 +45,8 @@ async function addScene(page: Page) {
 async function drawLongNote(page: Page) {
   await expect.poll(async () => Number(await page.getByTestId('timegrid').getAttribute('data-draw-count'))).toBeGreaterThan(0)
   await page.getByTestId('roll-snap').selectOption('bar')
+  // The roll opened from the grid does not hold the focus: a click from elsewhere only gives it (#835).
+  await page.getByTestId('roll-stage').getByTestId('timegrid').focus()
   const box = (await page.getByTestId('roll-stage').boundingBox())!
   const ppt = Number(await page.getByTestId('timegrid').getAttribute('data-px-per-tick'))
   const scrollY = Number(await page.getByTestId('roll-stage').getAttribute('data-scroll-y'))

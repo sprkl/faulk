@@ -115,6 +115,40 @@ fn create_in_the_arrangement_places_the_clip_and_defaults_to_one_bar() {
     ));
 }
 
+/// #852: an empty clip at the bar of the playhead, wherever it is: it lands on a free bar of a
+/// track (the fixture's has a placement at [7680, 11520)), is refused on a taken bar, refused
+/// when it would carve the placement that follows, and its undo (`clip.delete`) takes it away.
+#[test]
+fn create_at_a_free_bar_undoes_cleanly_and_never_overwrites_a_placement() {
+    let f = fx();
+    let create = |start| clip::Command::Create {
+        track: f.track.clone(),
+        at: ClipTarget::Arrangement { start: Tick(start) },
+        length: Some(Tick(3840)),
+        name: None,
+    };
+    let mut state = f.state.clone();
+    let mut ctx = context();
+    let out = run(&c(create(15360)), &mut state, &mut ctx).unwrap();
+    let Output::Clip(clip::Output::Create { placement, .. }) = &out.output else {
+        panic!()
+    };
+    assert_eq!(
+        state.project.tracks[&f.track].placements[placement.as_ref().unwrap()].start,
+        Tick(15360)
+    );
+    let Undo::Inverse(inverse) = out.undo else {
+        panic!("no inverse")
+    };
+    inverse.apply(&mut state, &mut ctx).unwrap();
+    assert_eq!(state.project, f.state.project);
+    // The taken bar, and the bar before it (the new clip would end inside the placement).
+    for start in [7680, 7680 + 100, 7680 - 100] {
+        let err = refused(&f, create(start));
+        assert_eq!(err.code(), "invalid", "start {start}: {err}");
+    }
+}
+
 #[test]
 fn create_refusals_leave_the_state_intact() {
     let f = fx();

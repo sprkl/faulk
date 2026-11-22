@@ -8,6 +8,10 @@ import {
   drawnNote,
   parseDrawLength,
   parseDrawVelocity,
+  parseLastLength,
+  parseSnap,
+  parseTool,
+  clickGivesFocus,
   stepLengths,
   writeLength,
   fits,
@@ -71,8 +75,12 @@ describe('pitch axis', () => {
 
   it('names the keys with middle C as C4 and knows the black ones', () => {
     expect(pitchName(60)).toBe('C4')
-    expect(pitchName(61)).toBe('C#4')
+    expect(pitchName(61)).toBe('C♯4')
     expect(pitchName(0)).toBe('C-1')
+    expect(pitchName(61, true)).toBe('D♭4')
+    expect(pitchName(70, true)).toBe('B♭4')
+    expect(pitchName(60, true)).toBe('C4')
+    expect(Array.from({ length: 12 }, (_, i) => pitchName(60 + i, true))).toEqual(['C4', 'D♭4', 'D4', 'E♭4', 'E4', 'F4', 'G♭4', 'G4', 'A♭4', 'A4', 'B♭4', 'B4'])
     expect(pitchName(127)).toBe('G9')
     expect([1, 3, 6, 8, 10, 61, 70].every(isBlackKey)).toBe(true)
     expect([0, 2, 4, 5, 7, 9, 11, 60].some(isBlackKey)).toBe(false)
@@ -548,5 +556,37 @@ describe('the keyboard resize (#623)', () => {
   it('takes a NaN step as a sixteenth and a zero step as one tick', () => {
     expect(lengths(stepLengths([note(0, 480)], Number.NaN, 1, 3840))).toEqual([720])
     expect(lengths(stepLengths([note(0, 480)], 0, 1, 3840))).toEqual([481])
+  })
+})
+
+describe('the tool and the snap kept across clips (#835)', () => {
+  it('reads the remembered tool, and falls back to draw on nothing or an unknown value', () => {
+    expect(parseTool('select')).toBe('select')
+    expect(parseTool('draw')).toBe('draw')
+    expect(parseTool(undefined)).toBe('draw')
+    expect(parseTool('erase')).toBe('draw')
+    expect(parseTool(3)).toBe('draw')
+  })
+  it('reads the remembered snap, and falls back to auto on nothing or an unknown value', () => {
+    expect(parseSnap('beat')).toBe('beat')
+    expect(parseSnap('sixteenth-triplet')).toBe('sixteenth-triplet')
+    expect(parseSnap(undefined)).toBe('auto')
+    expect(parseSnap('bogus')).toBe('auto')
+  })
+  it('reads the remembered last drawn length, and follows the snap (null) on anything but a positive whole number', () => {
+    expect(parseLastLength(960)).toBe(960)
+    expect(parseLastLength(null)).toBeNull()
+    expect(parseLastLength(undefined)).toBeNull()
+    expect(parseLastLength(0)).toBeNull()
+    expect(parseLastLength(-5)).toBeNull()
+    expect(parseLastLength(1.5)).toBeNull()
+    expect(parseLastLength(Number.NaN)).toBeNull()
+    expect(parseLastLength('960')).toBeNull()
+  })
+  it('lets a press only give the focus when the keyboard was on another element of the page', () => {
+    expect(clickGivesFocus(false, true)).toBe(true)
+    // In the roll, or on nothing at all: a plain click.
+    expect(clickGivesFocus(true, true)).toBe(false)
+    expect(clickGivesFocus(false, false)).toBe(false)
   })
 })

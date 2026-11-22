@@ -15,10 +15,12 @@ export const ENTITY_KEYS: Record<string, MessageKey> = {
   tracks: 'refusal.entity.tracks',
   scenes: 'refusal.entity.scenes',
   markers: 'refusal.entity.markers',
+  'key changes': 'refusal.entity.keyChanges',
   clips: 'refusal.entity.clips',
   notes: 'refusal.entity.notes',
   'notes per clip': 'refusal.entity.notesPerClip',
   devices: 'refusal.entity.devices',
+  'MIDI effects': 'refusal.entity.midiEffects',
   'automation points': 'refusal.entity.automationPoints',
   placements: 'refusal.entity.placements',
   'placements per track': 'refusal.entity.placementsPerTrack',
@@ -26,6 +28,7 @@ export const ENTITY_KEYS: Record<string, MessageKey> = {
   lanes: 'refusal.entity.lanes',
   'export seconds': 'refusal.entity.exportSeconds',
   'analyze seconds': 'refusal.entity.analyzeSeconds',
+  'sidechain sources': 'refusal.entity.sidechainSources',
 }
 
 /** The text key of a refusal code: one text per code, never one per call site. */
@@ -39,6 +42,8 @@ const CODE_KEYS = {
 
 /** The notice for a refusal of the core. The developer message of the error stays in the console. */
 export function refusalOf(error: CommandError): Omit<Refusal, 'count'> {
+  // A placement that would land on another, refused on purpose by the caller (`if_occupied`, #805): it says what stayed as it was.
+  if (error.code === 'invalid' && error.field === 'if_occupied') return { key: 'refusal.occupied', vars: {} }
   // A code a newer core added: the generic text, never a blank toast.
   const key = (CODE_KEYS as Record<string, MessageKey>)[error.code] ?? CODE_KEYS.invalid
   if (error.code !== 'limit') return { key, vars: {} }

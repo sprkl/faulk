@@ -1,0 +1,20 @@
+{
+  "category": "Modulation",
+  "device": "faulk.bloom",
+  "format": 1,
+  "name": "Soft Chorus",
+  "params": {
+    "delay": 0.014,
+    "depth": 35.0,
+    "division": 9.0,
+    "feedback": 0.0,
+    "mix": 0.45,
+    "mode": 0.0,
+    "rate": 0.6,
+    "shape": 0.0,
+    "stereo_phase": 90.0,
+    "sync": 0.0,
+    "tone": 150.0
+  },
+  "version": 1
+}

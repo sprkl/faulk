@@ -12,6 +12,13 @@ export class NoOutputError extends Error {
   }
 }
 
+/** The project's place as the helper is told it (AU-7): its id, the page's link marker, the folder's name. */
+export interface HelperPlace {
+  project: string
+  nonce: string
+  name: string
+}
+
 /** `MsgError::TooLarge`: a stream longer than the helper reads in one frame (`MAX_STREAM_BYTES`), never sent. */
 export const STREAM_TOO_LARGE = -5
 
@@ -113,6 +120,20 @@ export class NativeEngine implements Engine {
           case 'agent.left':
             events.onAgentLeft?.(message.agent)
             break
+          case 'folder.state':
+            events.onFolderState?.(message.project ?? null, message.state)
+            break
+          case 'export.progress':
+          case 'export.done':
+          case 'export.failed':
+            events.onExport?.(message)
+            break
+          case 'import.chosen':
+          case 'import.progress':
+          case 'import.done':
+          case 'import.failed':
+            events.onImport?.(message)
+            break
           case 'update.status':
             engine.update = { current: message.current ?? null, checkedAt: message.checked_at ?? null, status: message.status }
             events.onHelperUpdate?.(engine.update)
@@ -175,6 +196,52 @@ export class NativeEngine implements Engine {
     if (key === this.routed || this.ws.readyState !== WebSocket.OPEN) return
     this.routed = key
     this.message({ type: 'live.routing', epoch: routing.epoch, tracks: routing.tracks })
+  }
+
+  /**
+   * Tells the helper where the project lives (AU-7): in a real folder, with the link marker the page
+   * wrote there (`folder.open`), or nowhere it can see (`folder.close`, `place` null). The helper never
+   * gets a path from the page. Sent when it differs from the last one sent on this session.
+   */
+  place(place: HelperPlace | null) {
+    if (this.ws.readyState !== WebSocket.OPEN) return
+    const key = place ? `${place.project}:${place.nonce}:${place.name}` : ''
+    if (key === this.placed) return
+    this.placed = key
+    this.message(place ? { type: 'folder.open', ...place } : { type: 'folder.close' })
+  }
+
+  /** The last place sent on this session (`null`: none yet, so the first one always goes). */
+  private placed: string | null = null
+
+  /** Asks the helper to show its folder dialog for the project's folder (`folder.choose`, AU-7). */
+  chooseFolder(place: HelperPlace) {
+    this.message({ type: 'folder.choose', ...place })
+  }
+
+  /** Asks the helper to render an export job and write its file into the project's folder (`export.start`, #319). */
+  exportStart(start: Omit<Extract<ClientMessage, { type: 'export.start' }>, 'type'>) {
+    this.message({ type: 'export.start', ...start })
+  }
+
+  /** Stops the helper's export `id` (`export.cancel`, #319): it writes nothing. */
+  exportCancel(id: number) {
+    this.message({ type: 'export.cancel', id })
+  }
+
+  /** Shows the helper's file dialog for audio files to import (`import.choose`, #778). */
+  importChoose(id: number) {
+    this.message({ type: 'import.choose', id })
+  }
+
+  /** Asks the helper to import a file into the project's folder (`import.start`, #778). */
+  importStart(start: Omit<Extract<ClientMessage, { type: 'import.start' }>, 'type'>) {
+    this.message({ type: 'import.start', ...start })
+  }
+
+  /** Stops the helper's import `id` (`import.cancel`, #778). */
+  importCancel(id: number) {
+    this.message({ type: 'import.cancel', id })
   }
 
   private message(message: ClientMessage) {

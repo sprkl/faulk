@@ -5,9 +5,16 @@
   "name": "Drum Smash",
   "params": {
     "attack": 0.001,
+    "detection": 0.0,
+    "knee": 6.0,
+    "lookahead": 0.0,
     "makeup": 8.0,
+    "mix": 1.0,
     "ratio": 10.0,
     "release": 0.08,
+    "release_mode": 0.0,
+    "sidechain_freq": 100.0,
+    "sidechain_hpf": 0.0,
     "threshold": -30.0
   },
   "version": 1

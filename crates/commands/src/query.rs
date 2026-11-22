@@ -139,6 +139,8 @@ pub struct DeviceSummary {
     pub source: DeviceSource,
     /// The device's English name; `null` for a module and for the clip player.
     pub name: Option<String>,
+    /// The track its detection listens to (`device.set_sidechain`); `null` for its own.
+    pub sidechain: Option<TrackId>,
 }
 
 /// A clip in a list.
@@ -256,6 +258,10 @@ pub enum ParamUnit {
     Semitones,
     Cents,
     Percent,
+    /// An angle, in degrees.
+    Degrees,
+    /// A frequency ratio, in octaves.
+    Octaves,
 }
 
 /// How a control maps its travel to a parameter's value.
@@ -341,6 +347,7 @@ pub(crate) struct ProjectData {
     pub scale_root: u8,
     pub scale_mode: project::ScaleKind,
     pub scale_pitch_classes: Vec<u8>,
+    pub key_change_count: u32,
     pub master: Mixer,
     pub track_count: u32,
     pub scene_count: u32,
@@ -370,6 +377,7 @@ pub(crate) fn project_data(state: &State) -> ProjectData {
         scale_pitch_classes: p
             .scale
             .map_or_else(|| (0..12).collect(), project::Scale::pitch_classes),
+        key_change_count: count(p.key_changes.len()),
         master: p.master,
         track_count: count(p.tracks.len()),
         scene_count: count(p.scenes.len()),
@@ -466,6 +474,7 @@ fn device_summary(id: &DeviceId, device: &Device) -> DeviceSummary {
         enabled: device.enabled,
         source: device.source.clone(),
         name: device_name(device),
+        sidechain: device.sidechain.clone(),
     }
 }
 
@@ -699,6 +708,8 @@ fn param_spec(p: &ParamDescriptor) -> ParamSpec {
             Unit::Semitones => ParamUnit::Semitones,
             Unit::Cents => ParamUnit::Cents,
             Unit::Percent => ParamUnit::Percent,
+            Unit::Degrees => ParamUnit::Degrees,
+            Unit::Octaves => ParamUnit::Octaves,
         },
         min: p.min,
         max: p.max,

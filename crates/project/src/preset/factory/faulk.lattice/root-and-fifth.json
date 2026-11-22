@@ -1,0 +1,26 @@
+{
+  "category": "Scale",
+  "device": "faulk.lattice",
+  "format": 1,
+  "name": "Root and Fifth",
+  "params": {
+    "map_a": 7.0,
+    "map_a_flat": 7.0,
+    "map_b": 0.0,
+    "map_b_flat": 0.0,
+    "map_c": 0.0,
+    "map_c_sharp": 0.0,
+    "map_d": 0.0,
+    "map_e": 7.0,
+    "map_e_flat": 0.0,
+    "map_f": 7.0,
+    "map_f_sharp": 7.0,
+    "map_g": 7.0,
+    "root": 0.0,
+    "rule": 0.0,
+    "scale": 0.0,
+    "source": 2.0,
+    "transpose": 0.0
+  },
+  "version": 1
+}

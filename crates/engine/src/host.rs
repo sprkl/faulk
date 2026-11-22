@@ -32,13 +32,19 @@ use core::sync::atomic::{AtomicU32, Ordering, fence};
 use std::collections::VecDeque;
 use std::sync::Arc;
 
+use crate::analysis::{
+    Analysis, MAX_SPECTRA, MAX_WINDOW, SPECTRUM_REGION_WORDS, SPECTRUM_WIRE_BYTES, Source,
+    Spectrum, WINDOW_REGION_WORDS, WindowWriter, read_spectra, try_region,
+};
 use crate::device::{DeviceSetup, Factory};
 use crate::engine::{Engine, Preparer, channel as engine_channel};
+use crate::msg::try_box;
 use crate::msg::{
-    ACTIVE_CLIP_BYTES, ActiveClip, ClipState, DeviceKind, FEEDBACK_HEADER_BYTES, FEEDBACK_VERSION,
-    Feedback, HEADER_BYTES, MAX_RECORDED_PER_REPORT, MSG_VERSION, MsgError, Note,
-    RECORDED_NOTE_WIRE_BYTES, RecordedNote, TRACK_METER_BYTES, Tag, TrackMeter, TrackSlot,
-    TransportState, limits,
+    ACTIVE_CLIP_BYTES, ActiveClip, ClipState, DEVICE_READOUT_BYTES, DeviceKind, DeviceReadout,
+    DeviceSlot, FEEDBACK_HEADER_BYTES, FEEDBACK_LATENCY_OFFSET, FEEDBACK_READOUTS_OFFSET,
+    FEEDBACK_SPECTRA_OFFSET, FEEDBACK_VERSION, Feedback, HEADER_BYTES, MAX_READOUTS_PER_REPORT,
+    MAX_RECORDED_PER_REPORT, MSG_VERSION, MsgError, Note, ParamId, RECORDED_NOTE_WIRE_BYTES,
+    RecordedNote, TRACK_METER_BYTES, Tag, TrackMeter, TrackSlot, TransportState, limits,
 };
 use crate::time::SampleRate;
 
@@ -63,6 +69,11 @@ struct Status {
 pub struct Prepare {
     preparer: Preparer,
     status: Arc<Status>,
+    /// The spectrum analysis (#156, [`crate::analysis`]): the windows the audio side copies,
+    /// the spectra this side computes from them, and the analyser.
+    windows: Arc<[AtomicU32]>,
+    spectra: Arc<[AtomicU32]>,
+    analysis: Box<Analysis>,
 }
 
 impl Prepare {
@@ -72,6 +83,7 @@ impl Prepare {
         let result = self.preparer.submit(stream);
         self.preparer.flush();
         self.publish();
+        self.analyse();
         result
     }
 
@@ -80,6 +92,14 @@ impl Prepare {
     pub fn flush(&mut self) {
         self.preparer.flush();
         self.publish();
+        self.analyse();
+    }
+
+    /// Computes the spectra of the windows the audio side copied since the last call, if any,
+    /// and publishes them for its next report ([`crate::analysis`]); `true` when it did. The
+    /// host calls it through [`Prepare::flush`], every few milliseconds.
+    pub fn analyse(&mut self) -> bool {
+        self.analysis.run(&self.windows, &self.spectra)
     }
 
     /// Changes the sample rate, keeping the playhead: every device is built again for
@@ -444,7 +464,8 @@ pub struct Level {
 /// to the last one that was occupied at a report, and the output's.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Levels {
-    /// Frames rendered since the tally started, up to the last report.
+    /// Frames the output's level covers: rendered since the tally started up to the last
+    /// report, or the frames of its window ([`Host::tally_levels_over`]).
     pub frames: u64,
     /// By track slot.
     pub tracks: Vec<Level>,
@@ -453,14 +474,22 @@ pub struct Levels {
 }
 
 /// The sums behind [`Levels`]: one `(peak, sum of squares)` pair per channel, per slot and
-/// for the output (last).
+/// for the output (last), each over its own window of the tally's frames (#755).
 #[derive(Debug)]
 struct Tally {
+    /// Frames since the tally started, up to the last report.
     frames: u64,
     /// Slots up to the last one a report carried.
     used: usize,
     peak: Box<[[f32; 2]]>,
     squares: Box<[[f64; 2]]>,
+    /// Where each strip's window starts, in the tally's frames: a strip folds the reports whose
+    /// period starts in `[from, from + window)`.
+    from: Box<[u64]>,
+    /// The length of every strip's window (`u64::MAX`: every report from `from` on).
+    window: u64,
+    /// The frames each strip folded.
+    folded: Box<[u64]>,
 }
 
 impl Tally {
@@ -471,38 +500,51 @@ impl Tally {
             used: 0,
             peak: try_slice(n, [0.0; 2])?,
             squares: try_slice(n, [0.0; 2])?,
+            from: try_slice(n, 0)?,
+            window: u64::MAX,
+            folded: try_slice(n, 0)?,
         }))
     }
 
-    /// Folds one report's meters, taken over `frames` frames. A meter's RMS is the root of
-    /// its mean square over its period, so the squares are put back with the period's length.
+    /// Folds one report's meters, taken over `frames` frames, into every strip whose window
+    /// holds the period's first frame (a caller with windows cuts the periods at their edges).
+    /// A meter's RMS is the root of its mean square over its period, so the squares are put
+    /// back with the period's length. No allocation.
     fn add(&mut self, frames: u32, tracks: &[TrackMeter], master: TrackMeter) {
         let master_at = self.peak.len() - 1;
         let n = f64::from(frames.max(1));
+        let (now, window) = (self.frames, self.window);
         let mut fold = |at: usize, m: &TrackMeter| {
+            let from = self.from[at];
+            if now < from || now - from >= window {
+                return;
+            }
             self.peak[at][0] = self.peak[at][0].max(m.peak_l);
             self.peak[at][1] = self.peak[at][1].max(m.peak_r);
             self.squares[at][0] += f64::from(m.rms_l) * f64::from(m.rms_l) * n;
             self.squares[at][1] += f64::from(m.rms_r) * f64::from(m.rms_r) * n;
+            self.folded[at] = self.folded[at].saturating_add(u64::from(frames));
         };
         for (at, m) in tracks.iter().enumerate().take(master_at) {
             fold(at, m);
         }
         fold(master_at, &master);
         self.used = self.used.max(tracks.len().min(master_at));
-        self.frames += u64::from(frames);
+        self.frames = self.frames.saturating_add(u64::from(frames));
     }
 
     fn levels(&self) -> Levels {
-        let n = self.frames.max(1) as f64;
-        let level = |at: usize| Level {
-            peak_l: self.peak[at][0],
-            peak_r: self.peak[at][1],
-            rms_l: (self.squares[at][0] / n).sqrt() as f32,
-            rms_r: (self.squares[at][1] / n).sqrt() as f32,
+        let level = |at: usize| {
+            let n = self.folded[at].max(1) as f64;
+            Level {
+                peak_l: self.peak[at][0],
+                peak_r: self.peak[at][1],
+                rms_l: (self.squares[at][0] / n).sqrt() as f32,
+                rms_r: (self.squares[at][1] / n).sqrt() as f32,
+            }
         };
         Levels {
-            frames: self.frames,
+            frames: self.folded[self.peak.len() - 1],
             tracks: (0..self.used).map(level).collect(),
             master: level(self.peak.len() - 1),
         }
@@ -537,6 +579,16 @@ pub struct Host {
     report_frames: u32,
     feedback: Arc<[AtomicU32]>,
     feedback_seq: u32,
+    /// The spectrum analysis (#156, [`crate::analysis`]): the window region this side writes,
+    /// the spectrum region it reads, the spectra read from it and the seq they were published
+    /// under, the next device of the round robin, and a window's scratch.
+    windows: Arc<[AtomicU32]>,
+    spectrum_region: Arc<[AtomicU32]>,
+    window_writer: WindowWriter,
+    spectra: Box<[Spectrum; MAX_SPECTRA]>,
+    spectra_seq: u32,
+    robin: usize,
+    window: Box<[f32]>,
     /// The clock's rate the host last saw (#236): a change makes the report period and the
     /// load follow it.
     clock_rate: u32,
@@ -585,6 +637,9 @@ pub fn channel(sample_rate: f32) -> Result<(Prepare, Host), MsgError> {
         .map_err(|_| MsgError::OutOfMemory { bytes: words * 4 })?;
     feedback.resize_with(words, || AtomicU32::new(0));
     let frames = limits::MAX_BLOCK_FRAMES;
+    let windows = try_region(WINDOW_REGION_WORDS)?;
+    let spectrum_region = try_region(SPECTRUM_REGION_WORDS)?;
+    let analysis = try_box(Analysis::try_new()?)?;
     let host = Host {
         engine,
         status: Arc::clone(&status),
@@ -602,6 +657,13 @@ pub fn channel(sample_rate: f32) -> Result<(Prepare, Host), MsgError> {
         report_frames: report_frames(sample_rate),
         feedback: Arc::from(feedback.into_boxed_slice()),
         feedback_seq: 0,
+        windows: Arc::clone(&windows),
+        spectrum_region: Arc::clone(&spectrum_region),
+        window_writer: WindowWriter::default(),
+        spectra: try_box([Spectrum::default(); MAX_SPECTRA])?,
+        spectra_seq: 0,
+        robin: 0,
+        window: try_slice(MAX_WINDOW, 0.0)?,
         clock_rate: 0,
         #[cfg(feature = "testing")]
         probe: crate::audio_source::Voice::default(),
@@ -610,7 +672,13 @@ pub fn channel(sample_rate: f32) -> Result<(Prepare, Host), MsgError> {
         #[cfg(feature = "testing")]
         probe_out: try_slice(frames * crate::audio_source::MAX_CHANNELS, 0.0)?,
     };
-    let prepare = Prepare { preparer, status };
+    let prepare = Prepare {
+        preparer,
+        status,
+        windows,
+        spectra: spectrum_region,
+        analysis,
+    };
     prepare.publish();
     Ok((prepare, host))
 }
@@ -849,6 +917,30 @@ impl Host {
         Ok(())
     }
 
+    /// [`Host::tally_levels`] over one window of `frames` frames per strip (#755): track slot
+    /// `s` folds the reports whose period starts in `[track_lead(s), track_lead(s) + frames)`
+    /// frames from now, the output those that start in `[master_lead, master_lead + frames)`.
+    /// The offline render gives each strip the latency of its signal, so that every strip
+    /// measures the same stretch of the song. The caller cuts its blocks and writes a report
+    /// ([`Host::write_feedback`]) at every edge, so that no period crosses one. Allocates:
+    /// never on the audio thread. `Err` when the memory is refused.
+    pub fn tally_levels_over(
+        &mut self,
+        frames: u64,
+        track_lead: impl Fn(usize) -> u64,
+        master_lead: u64,
+    ) -> Result<(), MsgError> {
+        let mut tally = Tally::new()?;
+        let master_at = tally.from.len() - 1;
+        for (at, from) in tally.from.iter_mut().enumerate().take(master_at) {
+            *from = track_lead(at);
+        }
+        tally.from[master_at] = master_lead;
+        tally.window = frames;
+        self.tally = Some(tally);
+        Ok(())
+    }
+
     /// The levels folded since [`Host::tally_levels`] up to the last report written
     /// ([`Host::write_feedback`] writes the one that closes the period now); `None` when
     /// the tally was not started.
@@ -865,8 +957,9 @@ impl Host {
     /// every track slot up to the last track and the output's, then the active clips (GR-1),
     /// then the take's number, count and last notes (RE-2), the disk's underruns, offline
     /// sources, budget flag and PCM in memory (AU-3), and the frames the output protection
-    /// silenced because a sample was non-finite (#667), and the host's frame at the playhead (#733).
-    /// No allocation.
+    /// silenced because a sample was non-finite (#667), the host's frame at the playhead (#733),
+    /// the device latency the graph compensates (#749), after the notes the devices' readouts
+    /// (#686), then the spectra published since the last report (#156). No allocation.
     pub fn write_feedback(&mut self) {
         let seq = self.feedback_seq.wrapping_add(1) | 1;
         let fb = &self.feedback;
@@ -913,6 +1006,11 @@ impl Host {
             (disk.pcm_bytes.load(Ordering::Relaxed) / 1024).min(u64::from(u32::MAX)) as u32,
         );
         put(88, silenced_word(self.engine.limiter_silenced()));
+        let graph = self.engine.graph();
+        put(
+            FEEDBACK_LATENCY_OFFSET,
+            crate::msg::latency_word(graph.latency(), graph.latency_capped()),
+        );
         put(40, tracks as u32);
         put(52, self.period_voices);
         let mut at = FEEDBACK_HEADER_BYTES;
@@ -968,6 +1066,40 @@ impl Host {
             }
         });
         put(48, recorded);
+        // The devices' readouts, after the notes (#686): the region has room for
+        // `MAX_READOUTS_PER_REPORT`; past it the rest is left out.
+        let mut readouts = 0u32;
+        self.engine.device_readouts(|r| {
+            if (readouts as usize) < MAX_READOUTS_PER_REPORT {
+                put(at, r.track.0);
+                put(at + 4, u32::from(r.device.0) | (r.param.0 << 16));
+                put(at + 8, r.value.to_bits());
+                at += DEVICE_READOUT_BYTES;
+                readouts += 1;
+            }
+        });
+        put(FEEDBACK_READOUTS_OFFSET, readouts);
+        // The spectra the prepare side computed from the last windows (#156), after the readouts,
+        // once each: a report carries only spectra published since the last one, so that a
+        // stalled prepare side lets the page's spectra go stale rather than repeat. A write of
+        // theirs under way leaves `self.spectra` partly written and this report without spectra.
+        let fresh = match read_spectra(&self.spectrum_region, &mut self.spectra) {
+            Some((seq, count)) if seq != self.spectra_seq => {
+                self.spectra_seq = seq;
+                count
+            }
+            _ => 0,
+        };
+        for s in &self.spectra[..fresh] {
+            put(at, s.track);
+            put(at + 4, s.device);
+            put(at + 8, s.sample_rate.to_bits());
+            for (i, b) in s.bands.iter().enumerate() {
+                put(at + 12 + 4 * i, b.to_bits());
+            }
+            at += SPECTRUM_WIRE_BYTES;
+        }
+        put(FEEDBACK_SPECTRA_OFFSET, fresh as u32);
         put(56, recorder.take());
         put(60, recorder.total());
         put(64, recorder.dropped());
@@ -981,6 +1113,63 @@ impl Host {
             w.store(word(done.to_le_bytes()), Ordering::Release);
         }
         self.feedback_seq = done;
+        self.copy_windows();
+    }
+
+    /// The spectrum region this side reads (test builds only: a test makes a publication look
+    /// torn).
+    #[cfg(feature = "testing")]
+    pub fn spectrum_region(&self) -> Arc<[AtomicU32]> {
+        Arc::clone(&self.spectrum_region)
+    }
+
+    /// Copies the windows of at most [`MAX_SPECTRA`] analysing devices into the window region
+    /// for the prepare side (#156, [`crate::analysis`]): the enabled devices of every chain in
+    /// slot order, from the next one of the round robin, so that with more devices each one
+    /// gets its turn. No allocation.
+    fn copy_windows(&mut self) {
+        let mut devices = 0usize;
+        self.engine.enabled_devices(|_, _, _| devices += 1);
+        let start = if devices == 0 {
+            0
+        } else {
+            self.robin % devices
+        };
+        let region = &*self.windows;
+        let writer = &mut self.window_writer;
+        let window = &mut *self.window;
+        let rate = self.sample_rate;
+        writer.begin(region);
+        // Two turns: from `start` to the end, then from the start to `start`.
+        let mut taken = 0usize;
+        let mut last = start;
+        for pass in 0..2 {
+            let mut i = 0usize;
+            self.engine.enabled_devices(|track, device, entry| {
+                let mine = if pass == 0 { i >= start } else { i < start };
+                if mine && taken < MAX_SPECTRA {
+                    // A device that answers more than it was given is cut to the scratch.
+                    let n = entry.device.analysis_window(window).min(window.len());
+                    if n > 0
+                        && writer.push(
+                            region,
+                            Source {
+                                track: track.0,
+                                device: u32::from(device.0),
+                            },
+                            rate,
+                            &window[..n],
+                        )
+                    {
+                        taken += 1;
+                        last = i;
+                    }
+                }
+                i += 1;
+            });
+        }
+        writer.end(region);
+        self.robin = if taken == MAX_SPECTRA { last + 1 } else { 0 };
     }
 }
 
@@ -997,14 +1186,16 @@ pub fn feedback_voices(region: &[AtomicU32]) -> u32 {
     })
 }
 
-/// Bytes of a report of `tracks` tracks, `clips` active clips (at most two per track) and
-/// `recorded` notes: the fixed part, the track meters and the output's, the clips, then the
-/// notes.
-fn report_len(tracks: u32, clips: u32, recorded: u32) -> usize {
+/// Bytes of a report of `tracks` tracks, `clips` active clips (at most two per track),
+/// `recorded` notes, `readouts` device readouts and `spectra` spectra: the fixed part, the
+/// track meters and the output's, the clips, the notes, the readouts, then the spectra.
+fn report_len(tracks: u32, clips: u32, recorded: u32, readouts: u32, spectra: u32) -> usize {
     let tracks = (tracks as usize).min(limits::MAX_TRACKS as usize);
     let clips = (clips as usize).min(2 * tracks);
     let recorded = (recorded as usize).min(MAX_RECORDED_PER_REPORT);
-    Feedback::size_for(tracks, clips, recorded)
+    let readouts = (readouts as usize).min(MAX_READOUTS_PER_REPORT);
+    let spectra = (spectra as usize).min(MAX_SPECTRA);
+    Feedback::size_for(tracks, clips, recorded, readouts, spectra)
 }
 
 /// Copies the report of a region into `out` as the little-endian bytes of the `Feedback`
@@ -1026,7 +1217,14 @@ pub fn copy_feedback(region: &[AtomicU32], out: &mut Vec<u8>) -> bool {
     if seq == 0 || seq & 1 == 1 {
         return false;
     }
-    let len = report_len(load(10), load(11), load(12)).min(region.len() * 4);
+    let len = report_len(
+        load(10),
+        load(11),
+        load(12),
+        load(FEEDBACK_READOUTS_OFFSET / 4),
+        load(FEEDBACK_SPECTRA_OFFSET / 4),
+    )
+    .min(region.len() * 4);
     out.clear();
     out.extend((0..len.div_ceil(4)).flat_map(|i| load(i).to_le_bytes()));
     out.truncate(len);
@@ -1068,10 +1266,14 @@ pub fn decode_feedback(bytes: &[u8]) -> Option<Feedback> {
     let tracks = u32_at(40)?;
     let clips = u32_at(44)?;
     let recorded = u32_at(48)?;
+    let readouts = u32_at(FEEDBACK_READOUTS_OFFSET)?;
+    let spectra = u32_at(FEEDBACK_SPECTRA_OFFSET)?;
     if tracks > limits::MAX_TRACKS
         || clips > 2 * tracks
         || recorded as usize > MAX_RECORDED_PER_REPORT
-        || bytes.len() < report_len(tracks, clips, recorded)
+        || readouts as usize > MAX_READOUTS_PER_REPORT
+        || spectra as usize > MAX_SPECTRA
+        || bytes.len() < report_len(tracks, clips, recorded, readouts, spectra)
     {
         return None;
     }
@@ -1118,6 +1320,35 @@ pub fn decode_feedback(bytes: &[u8]) -> Option<Feedback> {
             })
         })
         .collect::<Option<Vec<_>>>()?;
+    let readouts_at = notes_at + recorded.len() * RECORDED_NOTE_WIRE_BYTES;
+    let readouts = (0..readouts as usize)
+        .map(|i| {
+            let at = readouts_at + i * DEVICE_READOUT_BYTES;
+            let ids = u32_at(at + 4)?;
+            Some(DeviceReadout {
+                track: TrackSlot(u32_at(at)?),
+                device: DeviceSlot(ids as u16),
+                param: ParamId(ids >> 16),
+                value: f32::from_bits(u32_at(at + 8)?),
+            })
+        })
+        .collect::<Option<Vec<_>>>()?;
+    let spectra_at = readouts_at + readouts.len() * DEVICE_READOUT_BYTES;
+    let spectra = (0..spectra as usize)
+        .map(|i| {
+            let at = spectra_at + i * SPECTRUM_WIRE_BYTES;
+            let mut s = Spectrum {
+                track: u32_at(at)?,
+                device: u32_at(at + 4)?,
+                sample_rate: f32::from_bits(u32_at(at + 8)?),
+                ..Spectrum::default()
+            };
+            for (k, b) in s.bands.iter_mut().enumerate() {
+                *b = f32::from_bits(u32_at(at + 12 + 4 * k)?);
+            }
+            Some(s)
+        })
+        .collect::<Option<Vec<_>>>()?;
     Some(Feedback {
         transport: match bytes[1] {
             1 => TransportState::Playing,
@@ -1138,6 +1369,8 @@ pub fn decode_feedback(bytes: &[u8]) -> Option<Feedback> {
         pcm_flags: u32_at(80)?,
         pcm_kib: u32_at(84)?,
         silenced_frames: u32_at(88)?,
+        latency_frames: u32_at(FEEDBACK_LATENCY_OFFSET)? & !crate::msg::FEEDBACK_LATENCY_CAPPED,
+        latency_capped: u32_at(FEEDBACK_LATENCY_OFFSET)? & crate::msg::FEEDBACK_LATENCY_CAPPED != 0,
         meters,
         master: meter(tracks as usize)?,
         voices: u32_at(52)?,
@@ -1147,6 +1380,8 @@ pub fn decode_feedback(bytes: &[u8]) -> Option<Feedback> {
         record_total: u32_at(60)?,
         record_dropped: u32_at(64)?,
         record_capturing: u32_at(68)? & 1 == 1,
+        readouts,
+        spectra,
     })
 }
 
@@ -1185,6 +1420,79 @@ pub mod testing {
             out.extend_from_slice(&s.to_le_bytes());
         }
         out
+    }
+
+    /// The spectrum scenario (#156): a host at 48 kHz with a track playing the synth through
+    /// two Contours (the first lifting 2 kHz by 12 dB), rendered for half a second in blocks of
+    /// 128 with the prepare side flushed between blocks, as the hosts do. Returns the bytes of
+    /// the last report, its spectra included. Empty if the channel could not be built.
+    pub fn spectrum_scenario() -> Vec<u8> {
+        use crate::devices::contour::{self, BandParam};
+        use crate::msg::{ControlMsg as M, DeviceSlot, ParamId, TrackKind, TrackSlot};
+        let Ok((mut prepare, mut host)) = channel(48_000.0) else {
+            return Vec::new();
+        };
+        let (Some(gain), Some(freq)) = (
+            contour::band_param(contour::BELL_2, BandParam::Gain),
+            contour::band_param(contour::BELL_2, BandParam::Freq),
+        ) else {
+            return Vec::new();
+        };
+        let t = TrackSlot(0);
+        let stream = crate::msg::encode_stream(
+            1,
+            0,
+            &[
+                M::Reset { epoch: 1 },
+                M::TrackCreate {
+                    track: t,
+                    kind: TrackKind::Midi,
+                },
+                M::DeviceInsert {
+                    track: t,
+                    device: DeviceSlot(0),
+                    kind: crate::OSC_SYNTH.kind_id,
+                    state: Vec::new(),
+                },
+                M::DeviceInsert {
+                    track: t,
+                    device: DeviceSlot(1),
+                    kind: contour::DESCRIPTOR.kind_id,
+                    state: crate::msg::encode_state(&[
+                        (ParamId(gain), 12.0),
+                        (ParamId(freq), 2000.0),
+                    ]),
+                },
+                M::DeviceInsert {
+                    track: t,
+                    device: DeviceSlot(2),
+                    kind: contour::DESCRIPTOR.kind_id,
+                    state: Vec::new(),
+                },
+                M::NoteOn {
+                    track: t,
+                    pitch: 45,
+                    velocity: 110,
+                    at: None,
+                },
+            ],
+        );
+        let Ok(stream) = stream else {
+            return Vec::new();
+        };
+        if prepare.submit(&stream).is_err() {
+            return Vec::new();
+        }
+        for _ in 0..190 {
+            host.render(128);
+            prepare.flush();
+        }
+        let mut report = Vec::new();
+        if copy_feedback(host.feedback(), &mut report) {
+            report
+        } else {
+            Vec::new()
+        }
     }
 }
 

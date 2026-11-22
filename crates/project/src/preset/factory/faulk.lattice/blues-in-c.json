@@ -1,0 +1,26 @@
+{
+  "category": "Scale",
+  "device": "faulk.lattice",
+  "format": 1,
+  "name": "Blues in C",
+  "params": {
+    "map_a": 9.0,
+    "map_a_flat": 8.0,
+    "map_b": 11.0,
+    "map_b_flat": 10.0,
+    "map_c": 0.0,
+    "map_c_sharp": 1.0,
+    "map_d": 2.0,
+    "map_e": 4.0,
+    "map_e_flat": 3.0,
+    "map_f": 5.0,
+    "map_f_sharp": 6.0,
+    "map_g": 7.0,
+    "root": 0.0,
+    "rule": 0.0,
+    "scale": 11.0,
+    "source": 1.0,
+    "transpose": 0.0
+  },
+  "version": 1
+}

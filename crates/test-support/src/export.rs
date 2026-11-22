@@ -61,7 +61,13 @@ pub fn export_native(state: &State, settings: ExportSettings) -> Exported {
 /// [`export_native`] with a project folder's audio files (#647): after each step the render's
 /// disk reads are served from `disk`, as the page's export Worker serves them from the folder.
 pub fn export_native_with_disk(state: &State, settings: ExportSettings, disk: &Disk) -> Exported {
-    let job = job_of(state, settings);
+    export_job_native(&job_of(state, settings), disk)
+}
+
+/// The render of a prepared job (its streams may be built by hand, #759), natively, its disk
+/// reads served from `disk`.
+pub fn export_job_native(job: &ExportJob, disk: &Disk) -> Exported {
+    let settings = job.plan.settings;
     let mut offline = Offline::new(settings.sample_rate, offline_plan(&job.plan))
         .expect("the render is accepted");
     offline.set_stop(&job.stop);
@@ -118,7 +124,12 @@ pub fn export_wasm(state: &State, settings: ExportSettings) -> Exported {
 /// [`export_wasm`] with a project folder's audio files, served through `fk_export_disk_*` as
 /// the page's export Worker serves them (#647).
 pub fn export_wasm_with_disk(state: &State, settings: ExportSettings, disk: &Disk) -> Exported {
-    let job = job_of(state, settings);
+    export_job_wasm(&job_of(state, settings), disk)
+}
+
+/// [`export_job_native`] through the WASM module.
+pub fn export_job_wasm(job: &ExportJob, disk: &Disk) -> Exported {
+    let settings = job.plan.settings;
     let bytes = std::fs::read(wasm_module()).expect("the wasm module exists");
     let engine = Engine::default();
     let module = Module::new(&engine, &bytes[..]).expect("valid module");

@@ -1,0 +1,2 @@
+2026-11-06
+* **Update** (#116): the helper reads the audio files of the project's folder in Boost (AU-7). The page still writes the project. No path crosses the link: the user shows the folder once in the helper's dialog, and the helper then recognizes it by the project id and a marker the page writes in `.faulk/link.json`. Paths are confined to the folder (typed refusals, canonical check, attack tests). Storage architecture § 4 and § 5.13, the MVP plan's AU-7 entry and the local bridge constraints are updated.

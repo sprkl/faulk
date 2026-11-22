@@ -4,7 +4,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { join, posix } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
-import { ALL, AREA, CORE, CORE_TESTS, FULL_TAG, MAX_SHARDS, NONE, RULES, SPECS_PER_SHARD, areas, coreBySpec, coreGrep, explain, needsWeb, planE2e, ruleFor, selectSpecs, shardCount, specNames, tableOnlyChange } from './e2e-plan.mjs'
+import { ALL, AREA, CORE, CORE_TESTS, FULL_TAG, FULL_WHEN, MAX_SHARDS, NONE, RULES, SPECS_PER_SHARD, areas, coreBySpec, coreGrep, explain, needsWeb, planE2e, ruleFor, selectSpecs, shardCount, specNames, tableOnlyChange } from './e2e-plan.mjs'
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url))
 const E2E = join(ROOT, 'web/tests/e2e/')
@@ -43,6 +43,34 @@ test('every spec on disk runs whole, its @full tests included, when its own file
   const both = plan(['web/tests/e2e/mixer.spec.ts', 'web/src/views/mixer/M.svelte'])
   assert.deepEqual(both.changed, ['mixer'])
   assert.ok(!both.specs.includes('mixer'))
+})
+
+test('a file of the store runs the streamed pack specs whole, @full included; other files do not (#737)', () => {
+  for (const [, names] of FULL_WHEN) for (const n of names) assert.ok(EXISTING.includes(n), `FULL_WHEN names "${n}": no such spec`)
+  const store = plan(['web/src/lib/storage/storage.svelte.ts'])
+  assert.equal(store.tier, 'area')
+  assert.deepEqual(store.changed, ['pack-import', 'pack-longtasks', 'pack-stream'])
+  // The rest of the area keeps its @full tests to the whole suite.
+  assert.ok(store.specs.includes('project-store'))
+  for (const n of store.changed) assert.ok(!store.specs.includes(n), n)
+  assert.match(store.why, /@full specs for: web\/src\/lib\/storage\/storage\.svelte\.ts/)
+  // Not for a unit test of the store (no browser test sees it), nor for a file outside the store, even one of the same area.
+  assert.equal(plan(['web/src/lib/storage/storage.test.ts']).run, false)
+  for (const f of ['web/src/views/shell/ProjectMenu.svelte', 'web/src/lib/project/core.ts', 'crates/project/src/file/read.rs', 'web/src/views/mixer/M.svelte']) {
+    const p = plan([f])
+    assert.ok(!p.changed.includes('pack-stream'), f)
+  }
+  // The banner and the zip writer and reader run them too.
+  for (const f of ['web/src/views/shell/StorageBanners.svelte', 'crates/project/src/file/pack.rs', 'crates/project-wasm/src/pack.rs']) {
+    assert.deepEqual(plan([f]).changed, ['pack-import', 'pack-longtasks', 'pack-stream'], f)
+  }
+  // A name that is no spec is a stale list: the whole suite, never a silent hole.
+  const without = EXISTING.filter((n) => n !== 'pack-longtasks')
+  const stale = planE2e(['web/src/lib/storage/rpc.ts'], without)
+  assert.equal(stale.tier, 'all')
+  assert.match(stale.why, /FULL_WHEN web\/src\/lib\/storage\/rpc\.ts -> pack-longtasks/)
+  // And it does not claim the selection it did not make.
+  assert.doesNotMatch(stale.why, /@full specs for/)
 })
 
 test('every rule is a verdict or a list of specs', () => {
@@ -148,15 +176,18 @@ test('no core test is tagged @full: the core run never loses one to --grep-inver
     }
     for (const t of hits) assert.ok(!t.includes(FULL_TAG), `core test "${t}" is tagged ${FULL_TAG}`)
   }
-  // The renderer sees the tags: the transport variants of the core (en, 1280) and the one left to the release (en, 1920).
+  // The renderer sees the tags: the transport variant of the core (en, 1280) is untagged, the French keyboard run is
+  // left to the release.
   assert.ok(renderedTitles('transport').some((t) => t.startsWith('transport, en, 1280 px') && !t.includes(FULL_TAG)))
-  const wide = new Function('lang', 'width', `return ${/test\((`transport, [^`]*`)/.exec(source('transport'))[1]}`)('en', 1920)
-  assert.ok(wide.endsWith(` ${FULL_TAG}`), wide)
+  const french = new Function('lang', `return ${/test\((`computer keyboard, [^`]*`)/.exec(source('keyboard'))[1]}`)('fr')
+  assert.ok(french.endsWith(` ${FULL_TAG}`), french)
 })
 
 test('the @full tests are the ones the lead chose: performance ceilings, second languages, extra widths', () => {
   const tagged = EXISTING.filter((s) => source(s).includes(FULL_TAG)).sort()
-  assert.deepEqual(tagged, ['all-sound-off', 'arrangement-time', 'audio-import', 'automation', 'browser-storage', 'grid', 'history-cost', 'keyboard', 'layout-4', 'mixer', 'pack-import', 'pack-longtasks', 'pack-stream', 'project-save', 'project-store', 'refused-commands', 'toolbar-overflow', 'tracks', 'transport'])
+  assert.deepEqual(tagged, ['all-sound-off', 'arrangement-time', 'audio-import', 'automation', 'browser-storage', 'grid', 'history-cost', 'keyboard', 'layout-4', 'mixer', 'pack-import', 'pack-longtasks', 'pack-stream', 'project-save', 'project-store', 'refused-commands', 'toolbar-overflow'])
+  // The en 1920 and fr 1280 runs of transport and tracks are gone (#848), not tagged: two pairs are kept, untagged.
+  for (const s of ['transport', 'tracks']) assert.deepEqual(renderedTitles(s).filter((t) => /^(transport|tracks), /.test(t)).length, 1, s)
   // A spec whose only test is tagged still has a run that passes: the area run passes --pass-with-no-tests.
   assert.ok(!['isolation', 'space-bar'].some((s) => source(s).includes(FULL_TAG)), 'isolation and space-bar stay as they are')
 })
@@ -309,6 +340,10 @@ test('tier area: a shared component runs the specs of the views that mount it', 
   for (const n of ['timegrid', 'arrangement-view', 'piano-roll', 'piano-roll-edit', 'piano-roll-jump']) assert.ok(tg.includes(n), n)
 })
 
+test('tier area: a piano roll change runs bottom-panel, which measures the roll at the panel minimum (#887)', () => {
+  assert.ok(plan(['web/src/views/piano-roll/PianoRollView.svelte']).specs.includes('bottom-panel'))
+})
+
 test('tier area: a crate the page is built from, outside its contracts', () => {
   const engine = plan(['crates/engine/src/devices/reverb.rs'])
   assert.equal(engine.tier, 'area')
@@ -333,7 +368,7 @@ test('tier core: a shared page file runs the core tests alone, on one machine', 
   assert.match(mixed.why, /shared page file: web\/src\/lib\/stores\/dispatcher\.ts/)
 })
 
-test('tier all: contracts, Playwright and CI configuration, build inputs, unknown paths, stale tables, on three machines', () => {
+test('tier all: contracts, Playwright and CI configuration, build inputs, unknown paths, stale tables, on four machines', () => {
   const whole = ['web/src/lib/generated/protocol.ts', 'web/src/lib/engine/worklet.ts', 'web/src/lib/engine/web-engine.ts', 'web/tests/e2e/support.ts', 'web/tests/e2e/fixtures/measure-rpc.js', 'web/playwright.config.ts', 'web/package.json', 'web/pnpm-lock.yaml', 'web/vite.config.ts', 'web/tsconfig.json', 'web/vercel.json', 'web/scripts/build-wasm.mjs', 'web/src/app.html', '.github/workflows/ci.yml', '.github/actions/web-setup/action.yml', 'scripts/ci/e2e-plan.mjs', 'crates/protocol/src/lib.rs', 'crates/commands/src/track.rs', 'crates/engine/src/msg.rs', 'crates/engine/src/msg/codec.rs', 'crates/engine-wasm/src/lib.rs', 'crates/brand-new/src/lib.rs', 'Cargo.lock', 'modules/x/a.dsp', 'web/some-new-folder/x.ts', 'brand-new-top-folder/x']
   for (const f of whole) {
     const p = plan(['web/src/views/tracks/T.svelte', f])
@@ -365,7 +400,7 @@ test('the tier of a change is the highest of its files', () => {
   assert.equal(plan(['web/src/lib/stores/x.ts', 'web/src/views/grid/G.svelte', 'web/src/lib/generated/x.ts']).tier, 'all')
 })
 
-test('shards: one for a short list, up to three, never zero for a run that happens', () => {
+test('shards: one for a short list, up to four, never zero for a run that happens', () => {
   assert.equal(shardCount(1), 1)
   assert.equal(shardCount(SPECS_PER_SHARD), 1)
   assert.equal(shardCount(SPECS_PER_SHARD + 1), 2)

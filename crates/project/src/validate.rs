@@ -12,7 +12,7 @@ use crate::limits::*;
 use crate::model::*;
 use crate::preset::MAX_PROJECT_PRESETS;
 use engine::time::{Frame, Tick};
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fmt;
 
 /// One broken invariant.
@@ -81,12 +81,18 @@ pub enum ViolationKind {
     PanOutOfRange,
     /// More than one instrument in a chain.
     TooManyInstruments,
-    /// An instrument that is not first in its chain.
+    /// An instrument that is not first in its chain after the MIDI effects.
     InstrumentNotFirst,
+    /// A MIDI effect after the instrument or after an audio effect: a chain's MIDI effects
+    /// come first (#219).
+    MidiEffectOutOfPlace,
+    /// A MIDI effect on an audio track, which plays no notes (#219).
+    MidiEffectOnAudioTrack,
     /// The clip player on a MIDI track or as an effect, or another instrument on an audio
     /// track.
     WrongInstrument,
-    /// A device of the master's chain that is not an effect: the master holds effects only.
+    /// A device of the master's chain that is not an audio effect (an instrument, a MIDI
+    /// effect): the master holds audio effects only.
     NotAnEffect,
     /// An audio file with no channel or more than [`MAX_CHANNELS`].
     BadChannels,
@@ -102,6 +108,21 @@ pub enum ViolationKind {
     BadPreset,
     /// A scale root above [`crate::scale::MAX_ROOT`] (#695).
     ScaleRoot(u8),
+    /// The key changes are not strictly increasing in tick, or one stands at tick 0 or past
+    /// [`crate::limits::MAX_TICK`] (#953).
+    KeyChangeTick,
+    /// A device's detection source (#952) that names a track the project does not have.
+    SidechainUnknownTrack,
+    /// A device's detection source that names the device's own track (absent is that).
+    SidechainSelf,
+    /// A detection source on a device of the master's chain, which listens to the mix.
+    SidechainOnMaster,
+    /// Detection sources that loop: a track listens, through its devices, to a track that
+    /// listens to it.
+    SidechainCycle,
+    /// A detection source on a device whose kind takes none (only a built-in kind whose
+    /// descriptor declares `sidechain` does).
+    SidechainNotTaken,
     /// More elements than a safety limit allows.
     TooMany { limit: usize },
 }
@@ -252,6 +273,24 @@ impl Project {
                 ViolationKind::ScaleRoot(scale.root),
             );
         }
+        c.count(self.key_changes.len(), MAX_KEY_CHANGES, "key_changes");
+        let mut previous = Tick::ZERO;
+        for (i, change) in self.key_changes.iter().enumerate() {
+            let path = format!("key_changes/{i}");
+            c.check(
+                change.tick > previous && change.tick.get() <= MAX_TICK,
+                &path,
+                ViolationKind::KeyChangeTick,
+            );
+            previous = change.tick;
+            if let Some(scale) = change.scale {
+                c.check(
+                    scale.root <= crate::scale::MAX_ROOT,
+                    &path,
+                    ViolationKind::ScaleRoot(scale.root),
+                );
+            }
+        }
         c.mixer(&self.master, "master");
         self.validate_master_chain(&mut c);
         let (mut notes, mut points) = (0usize, 0usize);
@@ -297,8 +336,49 @@ impl Project {
         c.count(counts.clips, c.limits.clips, "tracks");
         c.count(counts.placements, c.limits.placements, "tracks");
         c.count(counts.lanes, c.limits.lanes, "tracks");
+        self.validate_sidechains(&mut c);
 
         if c.out.is_empty() { Ok(()) } else { Err(c.out) }
+    }
+
+    /// The detection sources of the devices (#952): another existing track, on a track's
+    /// device whose built-in kind takes one, at most [`MAX_SIDECHAIN_SOURCES`] tracks listened
+    /// to, and no loop.
+    fn validate_sidechains(&self, c: &mut Checker<'_>) {
+        let takes = |device: &Device| match &device.source {
+            DeviceSource::Builtin { id, .. } => {
+                engine::device::builtin_descriptors().any(|d| d.kind == id && d.sidechain)
+            }
+            DeviceSource::Module { .. } => false,
+        };
+        for (id, device) in &self.master_devices {
+            c.check(
+                device.sidechain.is_none(),
+                &format!("master/devices/{id}"),
+                ViolationKind::SidechainOnMaster,
+            );
+        }
+        let mut sources = BTreeSet::new();
+        for (track_id, track) in &self.tracks {
+            for (id, device) in &track.devices {
+                let Some(source) = &device.sidechain else {
+                    continue;
+                };
+                let path = format!("tracks/{track_id}/devices/{id}");
+                c.check(takes(device), &path, ViolationKind::SidechainNotTaken);
+                c.check(source != track_id, &path, ViolationKind::SidechainSelf);
+                c.check(
+                    self.tracks.contains_key(source),
+                    &path,
+                    ViolationKind::SidechainUnknownTrack,
+                );
+                sources.insert(source);
+            }
+        }
+        c.count(sources.len(), MAX_SIDECHAIN_SOURCES, "tracks");
+        if let Some(track) = crate::sidechain::cycle(self) {
+            c.push(&format!("tracks/{track}"), ViolationKind::SidechainCycle);
+        }
     }
 
     fn validate_transport(&self, c: &mut Checker<'_>) {
@@ -386,13 +466,34 @@ impl Project {
             path,
             ViolationKind::MissingInstrument,
         );
+        // The order: the MIDI effects, then the instrument, then the audio effects (#219).
+        let midi_effects = chain
+            .iter()
+            .take_while(|(_, d)| d.role == DeviceRole::MidiEffect)
+            .count();
+        c.count(
+            chain
+                .iter()
+                .filter(|(_, d)| d.role == DeviceRole::MidiEffect)
+                .count(),
+            crate::limits::MAX_MIDI_EFFECTS_PER_TRACK,
+            path,
+        );
         for (i, (id, device)) in chain.iter().enumerate() {
             let path = format!("{path}/devices/{id}");
             c.id(&id.0, &path);
             let is_player =
                 matches!(&device.source, DeviceSource::Builtin { id, .. } if id == CLIP_PLAYER);
+            if device.role == DeviceRole::MidiEffect {
+                c.check(
+                    track.kind == TrackKind::Midi,
+                    &path,
+                    ViolationKind::MidiEffectOnAudioTrack,
+                );
+                c.check(i < midi_effects, &path, ViolationKind::MidiEffectOutOfPlace);
+            }
             if device.role == DeviceRole::Instrument {
-                c.check(i == 0, &path, ViolationKind::InstrumentNotFirst);
+                c.check(i == midi_effects, &path, ViolationKind::InstrumentNotFirst);
                 c.check(
                     is_player == (track.kind == TrackKind::Audio),
                     &path,

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { engineUp, watch } from './support'
+import { engineUp, skipWithoutDevHooks, watch } from './support'
 
 // AR-4 (#80): the arrangement view in a real browser, with the real worklet, engine and project core. Every
 // gesture reaches the project as an arrangement command (a refused command would be a console warning, which
@@ -31,6 +31,19 @@ const stage = (page: Page) => page.getByTestId('arr-stage')
 const blocks = async (page: Page): Promise<Block[]> =>
   (JSON.parse((await arr(page).getAttribute('data-blocks')) ?? '[]') as Block[]).sort((a, b) => a.start - b.start || (a.id < b.id ? -1 : 1))
 const selected = async (page: Page): Promise<string[]> => JSON.parse((await arr(page).getAttribute('data-selection')) ?? '[]')
+
+/**
+ * The follow tests play at 480 BPM, four times the default 120 (#848): the play position leaves a window of bars four
+ * times sooner, and no assertion reads the tempo. At 120 BPM each wait for a page turn was up to half a minute.
+ */
+async function playFast(page: Page) {
+  const tempo = page.getByTestId('transport-tempo')
+  await tempo.fill('480')
+  await tempo.press('Enter')
+  await expect(tempo).toHaveValue('480')
+  // A refused tempo keeps the typed text too (#474): the range error says whether it was taken.
+  await expect(page.getByTestId('tempo-error')).toHaveCount(0)
+}
 
 /** Where a tick and a lane are on the page. */
 async function spot(page: Page) {
@@ -181,8 +194,13 @@ test('arrangement view: place, move, resize, split, duplicate, delete, loop, see
   expect((await blocks(page)).map((b) => b.start)).toEqual(linked.map((b) => b.start))
 
   // A double-click on an empty place of the lane makes a one-bar clip; on a clip it opens the piano roll.
+  // #84: from another panel, the new clip brings the piano roll up, on the bar it was made.
+  await page.getByTestId('panel-devices').click()
+  await expect(page.getByTestId('piano-roll')).toBeHidden()
   await page.mouse.dblclick(g.x(3 * BAR + 100), g.y(0))
   await expect(arr(page)).toHaveAttribute('data-block-count', '6')
+  await expect(page.getByTestId('piano-roll')).toBeVisible()
+  await expect(page.getByTestId('roll-clip-origin')).toHaveText('Arrangement · bar 4')
   await page.getByTestId('panel-devices').click()
   await page.mouse.dblclick(g.x(2 * BAR + 1000), g.y(0))
   await expect(page.getByTestId('piano-roll')).toBeVisible()
@@ -202,6 +220,7 @@ test('arrangement view: follow the play position, scrollbar, zoom buttons', asyn
   await startAudio(page)
   await engineUp(page)
   await page.getByTestId('nav-arrangement').click()
+  await playFast(page)
   const grid = stage(page).getByTestId('timegrid')
   const num = async (attribute: string) => Number(await grid.getAttribute(attribute))
   const scroll = () => num('data-scroll-tick')
@@ -290,6 +309,7 @@ test('arrangement view: Stop, Back to start and a seek bring the view back to th
   await startAudio(page)
   await engineUp(page)
   await page.getByTestId('nav-arrangement').click()
+  await playFast(page)
   const grid = stage(page).getByTestId('timegrid')
   const num = async (attribute: string) => Number(await grid.getAttribute(attribute))
   const scroll = () => num('data-scroll-tick')
@@ -298,7 +318,7 @@ test('arrangement view: Stop, Back to start and a seek bring the view back to th
   const play = () => transport.getByRole('button', { name: 'Play', exact: true }).click()
   const stop = () => transport.getByRole('button', { name: 'Stop', exact: true }).click()
   await expect.poll(() => num('data-draw-count')).toBeGreaterThan(0)
-  // The arrangement opens on 16 bars (#473), half a minute of playing: zoom in to about 4 bars, back to bar 1.
+  // The arrangement opens on 16 bars (#473), 8 s of playing at 480 BPM: zoom in to about 4 bars, back to bar 1.
   for (let i = 0; i < 6; i++) await page.getByTestId('arr-zoom-in').click()
   await grid.focus()
   await page.keyboard.press('Home')
@@ -470,3 +490,55 @@ test('arrangement view: the headers and the canvas scroll together, with a verti
   await expect(page.getByTestId('arr-lane')).toBeInViewport()
   expect(seen.errors).toEqual([])
 })
+
+// #772: Ctrl+E on a placement cut at the playhead says how many placements it cut (the count was read after the cut, from a
+// selection the cut had replaced, and said 0). Both languages; the toolbar's Split says the same.
+for (const [lang, text] of [
+  ['en', 'Clips split: 1'],
+  ['fr', 'Clips coupés : 1'],
+] as const) {
+  test(`arrangement: the split says the count it cut (${lang})`, async ({ page }) => {
+    test.setTimeout(120_000)
+    const seen = watch(page)
+    await page.addInitScript((l) => localStorage.setItem('faulk.lang', l), lang)
+    await page.setViewportSize({ width: 1600, height: 900 })
+    await page.goto('/app')
+    await startAudio(page)
+    await engineUp(page)
+    await skipWithoutDevHooks(page)
+    await page.getByTestId('panel-piano-roll').click()
+    await page.getByTestId('roll-create-clip').click()
+    await page.getByTestId('nav-arrangement').click()
+    await expect(arr(page)).toHaveAttribute('data-block-count', '1')
+    const seek = (tick: number) =>
+      page.evaluate((t) => (window as unknown as { __faulkRun(c: object): void }).__faulkRun({ type: 'transport.seek', tick: t }), tick)
+    const playheadX = async () => Number(await stage(page).getByTestId('timegrid').getAttribute('data-playhead-x'))
+    const x0 = await playheadX()
+    await seek(BAR / 2)
+    await expect.poll(playheadX).toBeGreaterThan(x0)
+
+    // From the keyboard: the placement is focused and not selected (the case of #772), Ctrl+E cuts it and says so.
+    const said = page.getByTestId('arr-said')
+    expect(await selected(page)).toEqual([])
+    await expect(said).toHaveAttribute('data-n', '0')
+    await page.getByTestId('arr-item').first().focus()
+    expect(await selected(page)).toEqual([])
+    await page.keyboard.press('Control+e')
+    await expect.poll(async () => (await blocks(page)).length).toBe(2)
+    await expect(said).toContainText(text)
+    await expect(said).toHaveAttribute('data-n', '1')
+
+    // From the toolbar: both halves selected, only the second holds the playhead moved into it, so one is cut.
+    const x1 = await playheadX()
+    await seek(BAR / 2 + BAR / 4)
+    await expect.poll(playheadX).toBeGreaterThan(x1)
+    await page.keyboard.press('Control+a')
+    await expect(page.getByTestId('arr-split')).toBeEnabled()
+    await page.getByTestId('arr-split').click()
+    await expect.poll(async () => (await blocks(page)).length).toBe(3)
+    // A new announcement (the counter moved), not the one of the keyboard step left on the line.
+    await expect(said).toHaveAttribute('data-n', '2')
+    await expect(said).toContainText(text)
+    expect(seen.errors).toEqual([])
+  })
+}

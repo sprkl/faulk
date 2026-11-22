@@ -136,6 +136,42 @@ fn a_failure_is_a_code_and_a_text_and_the_next_job_works() {
 }
 
 #[test]
+fn the_decoded_size_is_capped_and_a_lower_cap_holds_for_one_job_only() {
+    assert_eq!(ai_max_decoded_bytes(), (16u64 << 30) as f64);
+    assert_eq!(
+        ai_max_decoded_bytes(),
+        audio_import::MAX_DECODED_BYTES as f64
+    );
+    // `sine.mp3` decodes to 176 400 bytes of `f32` and declares no length: refused by the block
+    // that would pass a cap of 100 000, with the cap in its text.
+    let mp3 = fixture("sine.mp3");
+    ai_limit(100_000.0);
+    assert_eq!(decode(&mp3, "mp3").map(|_| ()), Err(-9));
+    assert_eq!(
+        error_text(),
+        "the file decodes to more than 100000 bytes of audio, the most a project keeps of one file"
+    );
+    // The next job has the limit again.
+    assert!(decode(&mp3, "mp3").is_ok());
+    // `sine.flac` declares its length: refused at the opening.
+    let flac = fixture("sine.flac");
+    ai_limit(1_000.0);
+    assert_eq!(decode(&flac, "flac").map(|_| ()), Err(-9));
+    assert!(decode(&flac, "flac").is_ok());
+    // A failed opening takes the lower cap too: the job after it has the limit.
+    ai_limit(1_000.0);
+    assert_eq!(decode(&fixture("not-audio.txt"), "txt"), Err(-1));
+    assert!(decode(&mp3, "mp3").is_ok());
+    // A cap that is no number of bytes is the limit; 0 refuses any sample.
+    for cap in [f64::NAN, -1.0, f64::INFINITY, f64::NEG_INFINITY, 1e300] {
+        ai_limit(cap);
+        assert!(decode(&mp3, "mp3").is_ok(), "{cap}");
+    }
+    ai_limit(0.0);
+    assert_eq!(decode(&mp3, "mp3").map(|_| ()), Err(-9));
+}
+
+#[test]
 fn the_cache_header_and_its_check_are_the_librarys() {
     let info = audio_import::MediaInfo {
         sample_rate: 44_100,

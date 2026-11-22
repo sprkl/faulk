@@ -24,17 +24,21 @@
 //! (`agent.left`), so that the page closes the history group that agent left open.
 
 use crate::audio::{EngineSlot, Meter, Refusal};
+use crate::disk::{
+    DialogGate, FolderPicker, Lookup, NoPicker, OpenError, OpenFolder, Picked, ProjectFolder,
+    Remembered,
+};
 use crate::live::LiveInput;
 use crate::midi::{MidiManager, Received};
 use crate::security::{Handshake, PairResult, Pairing, Policy, Route};
 use crate::updater::UpdateWatch;
 use futures_util::{SinkExt, StreamExt};
 use protocol::{
-    AgentResult, Capabilities, ClientMessage, HELPER_NAME, MAX_STREAM_BYTES, PROTOCOL_VERSION,
-    ServerMessage,
+    AgentResult, Capabilities, ClientMessage, FolderRefusal, FolderStatus, HELPER_NAME,
+    MAX_STREAM_BYTES, PROTOCOL_VERSION, ServerMessage,
 };
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 use tokio::net::{TcpListener, TcpStream};
@@ -125,6 +129,41 @@ pub struct Shared {
     agents: Mutex<crate::agents::Presence>,
     /// How long an agent may stay silent before it counts as gone (tests shorten it).
     agent_idle: Duration,
+    /// The project folder the session's page has open (AU-7), read by the disk thread.
+    open_folder: Arc<OpenFolder>,
+    /// What the session's page said of its project's place: the session, the project and the
+    /// page's link marker. A dialog's answer is taken only while they still hold.
+    link: Mutex<Option<Link>>,
+    /// Numbers the places named (`Link::seq`).
+    next_place: AtomicU64,
+    /// The folders the user picked in the helper's dialog.
+    remembered: Mutex<Remembered>,
+    picker: Arc<dyn FolderPicker>,
+    /// One folder dialog at a time.
+    dialog: Arc<DialogGate>,
+    /// The export under way (#319): one at a time.
+    export: Mutex<Option<RunningExport>>,
+    /// The native import under way (#778): one at a time.
+    import: Mutex<Option<RunningImport>>,
+    /// The files the user picked in the helper's file dialog, by token (#778), oldest first.
+    picked: Mutex<Vec<PickedEntry>>,
+    /// The cap on an import's decoded size.
+    import_max_bytes: u64,
+    /// Export threads not yet over, a cancelled one still unwinding included (its slot is freed
+    /// at once, before its write is dropped): one ends once that write is dropped (#792).
+    export_threads: AtomicUsize,
+    /// The language of the dialog's title.
+    lang: crate::tray_text::Lang,
+}
+
+/// The project's place a session's page named (`folder.open`, `folder.choose`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Link {
+    session: u64,
+    project: String,
+    nonce: String,
+    /// Which folder message named it: a later one is a newer place.
+    seq: u64,
 }
 
 /// An agent's MCP session, counted as long as it lives (#641): dropped with the session (the
@@ -239,7 +278,53 @@ impl Shared {
             mcp: OnceLock::new(),
             agents: Mutex::new(crate::agents::Presence::default()),
             agent_idle: crate::agents::AGENT_IDLE,
+            open_folder: Arc::new(OpenFolder::default()),
+            link: Mutex::new(None),
+            next_place: AtomicU64::new(1),
+            remembered: Mutex::new(Remembered::default()),
+            picker: Arc::new(NoPicker),
+            dialog: Arc::new(DialogGate::default()),
+            export: Mutex::new(None),
+            import: Mutex::new(None),
+            picked: Mutex::new(Vec::new()),
+            import_max_bytes: audio_import::MAX_DECODED_BYTES,
+            export_threads: AtomicUsize::new(0),
+            lang: crate::tray_text::Lang::En,
         }
+    }
+
+    /// A lower cap on an import's decoded size than `audio_import::MAX_DECODED_BYTES` (#778:
+    /// tests, which cannot decode 16 GiB to see the refusal).
+    pub fn with_import_cap(mut self, max_bytes: u64) -> Self {
+        self.import_max_bytes = max_bytes.min(audio_import::MAX_DECODED_BYTES);
+        self
+    }
+
+    /// The folders the helper remembers and its folder dialog (AU-7), with the language of the
+    /// dialog's title. Without it the helper remembers nothing and has no dialog.
+    pub fn with_folders(
+        mut self,
+        remembered: Remembered,
+        picker: Arc<dyn FolderPicker>,
+        lang: crate::tray_text::Lang,
+    ) -> Self {
+        self.remembered = Mutex::new(remembered);
+        self.picker = picker;
+        self.lang = lang;
+        self
+    }
+
+    /// The project folder the session's page has open, for the disk thread (`crate::disk`).
+    pub fn open_folder(&self) -> &Arc<OpenFolder> {
+        &self.open_folder
+    }
+
+    /// The folders the user picked, most recent first.
+    pub fn remembered_folders(&self) -> Vec<std::path::PathBuf> {
+        self.remembered
+            .lock()
+            .map(|r| r.paths().to_vec())
+            .unwrap_or_default()
     }
 
     /// How long an agent's call waits for the page (tests shorten it).
@@ -523,7 +608,9 @@ impl Shared {
             epoch,
             capabilities: Capabilities {
                 midi: self.midi_available,
-                disk: false,
+                disk: true,
+                export: true,
+                import: true,
             },
         };
         Some((hello, generation))
@@ -568,7 +655,7 @@ impl Shared {
     /// Answers a JSON message of session `id`: the helper's MIDI inputs, and the table its
     /// notes play with.
     fn answer(
-        &self,
+        self: &Arc<Self>,
         id: u64,
         message: Result<ClientMessage, serde_json::Error>,
     ) -> Vec<ServerMessage> {
@@ -609,6 +696,69 @@ impl Shared {
                 self.answer_call(id, call, result);
                 Vec::new()
             }
+            Ok(ClientMessage::FolderOpen {
+                project,
+                nonce,
+                name,
+            }) => match self.checked_link(id, project, nonce, &name) {
+                Ok(link) => {
+                    self.folder_open(link);
+                    Vec::new()
+                }
+                Err(error) => vec![error],
+            },
+            Ok(ClientMessage::FolderChoose {
+                project,
+                nonce,
+                name,
+            }) => match self.checked_link(id, project, nonce, &name) {
+                Ok(link) => self.folder_choose(link, &name).into_iter().collect(),
+                Err(error) => vec![error],
+            },
+            Ok(ClientMessage::FolderClose) => self.folder_close(id).into_iter().collect(),
+            Ok(ClientMessage::ExportStart {
+                id: run,
+                project,
+                name,
+                sample_rate,
+                bits,
+                body_frames,
+                setup,
+                start,
+                stop,
+            }) => {
+                let fields = crate::export::StartFields {
+                    id: run,
+                    project: &project,
+                    name: &name,
+                    sample_rate,
+                    bits,
+                    body_frames,
+                    setup: &setup,
+                    start: &start,
+                    stop: &stop,
+                };
+                self.export_start(id, fields).into_iter().collect()
+            }
+            Ok(ClientMessage::ExportCancel { id: run }) => {
+                self.export_cancel(id, run);
+                Vec::new()
+            }
+            Ok(ClientMessage::ImportChoose { id: run }) => {
+                self.import_choose(id, run).into_iter().collect()
+            }
+            Ok(ClientMessage::ImportStart {
+                id: run,
+                project,
+                source,
+            }) => self
+                .import_start(id, run, &project, source)
+                .into_iter()
+                .collect(),
+            Ok(ClientMessage::ImportCancel { id: run }) => {
+                self.import_cancel(id, run);
+                Vec::new()
+            }
             Ok(ClientMessage::Pair { .. } | ClientMessage::ControlFront) | Err(_) => {
                 vec![ServerMessage::Error {
                     code: "protocol.invalid".into(),
@@ -616,6 +766,801 @@ impl Shared {
                 }]
             }
         }
+    }
+
+    /// The place a `folder.open` or `folder.choose` names, checked: a project id, a link nonce,
+    /// and a folder name of a reasonable length (shown in the dialog's title only). Otherwise the
+    /// message is invalid and nothing changes. Each one gets a new sequence number: a place named
+    /// since is a newer one, even with the same project and marker.
+    fn checked_link(
+        &self,
+        session: u64,
+        project: String,
+        nonce: String,
+        name: &str,
+    ) -> Result<Link, ServerMessage> {
+        let ok = project::ProjectId::parse(&project).is_ok()
+            && crate::disk::valid_nonce(&nonce)
+            && name.len() <= 255
+            && !name.chars().any(char::is_control);
+        if !ok {
+            return Err(ServerMessage::Error {
+                code: "protocol.invalid".into(),
+                message:
+                    "a folder message needs a project id, a 32-digit hex nonce and a short name"
+                        .into(),
+            });
+        }
+        Ok(Link {
+            session,
+            project,
+            nonce,
+            seq: self.next_place.fetch_add(1, Ordering::Relaxed),
+        })
+    }
+
+    /// Makes `link` the place of its session, when that session is the current one: under the
+    /// session lock, so it never follows the session's end (which clears its place). A place of
+    /// another project or marker closes the folder open now at once: the helper never reads the
+    /// folder of a place the page left, while the new one is looked up, nor after a refused or
+    /// cancelled dialog.
+    fn name_place(&self, link: &Link) -> bool {
+        let session = self.session.lock().expect("session lock");
+        if !session.as_ref().is_some_and(|s| s.id == link.session) {
+            return false;
+        }
+        let mut current = self.link.lock().expect("link lock");
+        let same = current.as_ref().is_some_and(|c| {
+            c.session == link.session && c.project == link.project && c.nonce == link.nonce
+        });
+        if !same {
+            self.open_folder.set(None);
+        }
+        *current = Some(link.clone());
+        true
+    }
+
+    /// Commits what was found for `link`, only while it is still the place named (same session,
+    /// current, and no folder message since): `folder` becomes the open folder and `state` is told.
+    /// `false` otherwise: a newer message was answered, or will be. The session lock first, then
+    /// the link's, as everywhere.
+    fn commit(
+        &self,
+        link: &Link,
+        folder: Option<ProjectFolder>,
+        state: FolderStatus,
+        opens: bool,
+    ) -> bool {
+        let session = self.session.lock().expect("session lock");
+        let Some(s) = session.as_ref().filter(|s| s.id == link.session) else {
+            return false;
+        };
+        let current = self.link.lock().expect("link lock");
+        if current.as_ref() != Some(link) {
+            return false;
+        }
+        if opens {
+            self.open_folder.set(folder.map(Arc::new));
+        }
+        // Sent under the locks: the states reach the page in the order they were committed, so a
+        // newer place's state is never followed by an older one's.
+        let _ = s.tx.send(Out::Msg(ServerMessage::FolderState {
+            project: Some(link.project.clone()),
+            state,
+        }));
+        true
+    }
+
+    /// Looks `link` up among the remembered folders (disk work, on a blocking thread and with no
+    /// lock held) and commits it: the folder that holds the project and the page's marker is
+    /// opened; with none, or several, no folder is (the page asks the user to show it).
+    fn resolve(&self, link: &Link) -> bool {
+        let paths = self
+            .remembered
+            .lock()
+            .map(|r| r.paths().to_vec())
+            .unwrap_or_default();
+        match crate::disk::lookup(&paths, &link.project, &link.nonce) {
+            Lookup::Found(folder) => {
+                let state = FolderStatus::Open {
+                    name: folder.name().to_owned(),
+                };
+                self.commit(link, Some(folder), state, true)
+            }
+            Lookup::Unknown => self.commit(link, None, FolderStatus::Unknown, true),
+            Lookup::Ambiguous(count) => {
+                self.commit(link, None, FolderStatus::Ambiguous { count }, true)
+            }
+        }
+    }
+
+    /// `folder.open` of the current session (AU-7): the place is named at once, then looked up
+    /// off the runtime, and its state told. Nothing for a session that is not the current one.
+    fn folder_open(self: &Arc<Self>, link: Link) {
+        if !self.name_place(&link) {
+            return;
+        }
+        let shared = self.clone();
+        tokio::task::spawn_blocking(move || {
+            shared.resolve(&link);
+        });
+    }
+
+    /// `folder.choose` of the current session: the helper's dialog, one at a time. Answers
+    /// `choosing` at once; the outcome follows when the user closes the dialog. A request that
+    /// finds a dialog open shows nothing more: when that dialog closes, the place named last is
+    /// looked up again and its state told, so no page is left waiting on `choosing`.
+    fn folder_choose(self: &Arc<Self>, link: Link, name: &str) -> Option<ServerMessage> {
+        if !self.name_place(&link) {
+            return None;
+        }
+        let choosing = ServerMessage::FolderState {
+            project: Some(link.project.clone()),
+            state: FolderStatus::Choosing,
+        };
+        let Some(taken) = self.dialog.take() else {
+            return Some(choosing);
+        };
+        let shared = self.clone();
+        let title = crate::tray_text::folder_dialog_title(self.lang, name);
+        tokio::task::spawn_blocking(move || {
+            let picked = shared.picker.pick(&title);
+            drop(taken);
+            if shared.take_pick(&link, picked) {
+                return;
+            }
+            // Another place was named meanwhile (by this page or by the one that replaced it):
+            // its state, the folder just picked included.
+            let current = shared.link.lock().ok().and_then(|l| l.clone());
+            if let Some(current) = current {
+                shared.resolve(&current);
+            }
+        });
+        Some(choosing)
+    }
+
+    /// What the dialog's answer does, for the place `link` named: a folder holding the project
+    /// and the page's marker is remembered, and opened while `link` is still the place named.
+    /// `false` when that place is not the one named any more.
+    fn take_pick(&self, link: &Link, picked: Picked) -> bool {
+        let refused = |reason| FolderStatus::Refused { reason };
+        let (folder, state) = match picked {
+            Picked::Cancelled => (None, refused(FolderRefusal::Cancelled)),
+            Picked::Unavailable => (None, refused(FolderRefusal::Unavailable)),
+            Picked::Folder(path) => match ProjectFolder::open(&path, Some(&link.project)) {
+                Err(OpenError::Unreadable) => (None, refused(FolderRefusal::Unreadable)),
+                Err(OpenError::NoProject) => (None, refused(FolderRefusal::NoProject)),
+                Err(OpenError::OtherProject) => (None, refused(FolderRefusal::OtherProject)),
+                Ok(folder) if !folder.holds_link(&link.nonce) => {
+                    (None, refused(FolderRefusal::NotThisFolder))
+                }
+                Ok(folder) => {
+                    // Kept whatever the page did since: the user picked it.
+                    if let Ok(mut remembered) = self.remembered.lock() {
+                        remembered.remember(folder.root());
+                    }
+                    let state = FolderStatus::Open {
+                        name: folder.name().to_owned(),
+                    };
+                    (Some(folder), state)
+                }
+            },
+        };
+        let opens = folder.is_some();
+        self.commit(link, folder, state, opens)
+    }
+
+    /// `folder.close` of the current session: no folder.
+    fn folder_close(&self, id: u64) -> Option<ServerMessage> {
+        let session = self.session.lock().expect("session lock");
+        if !session.as_ref().is_some_and(|s| s.id == id) {
+            return None;
+        }
+        self.end_link(id);
+        Some(ServerMessage::FolderState {
+            project: None,
+            state: FolderStatus::Closed,
+        })
+    }
+
+    /// Session `id`'s place is gone (closed, or the session ended or was replaced): no folder.
+    /// Called under the session lock.
+    fn end_link(&self, id: u64) {
+        let mut link = self.link.lock().expect("link lock");
+        if link.as_ref().is_none_or(|l| l.session == id) {
+            *link = None;
+            self.open_folder.set(None);
+        }
+    }
+}
+
+/// The end of an export's thread (#319): on drop, the slot is freed when it is still this run's,
+/// then the page is told, `message` or, when the thread panicked before setting it,
+/// `export.failed` `export.render`, once the thread counts as over ([`Shared::export_threads`]).
+/// Its temporary file went with the `PendingWrite`'s drop, before: `crate::export::run`
+/// returned.
+struct ExportEnd<'a> {
+    shared: &'a Shared,
+    session: u64,
+    run: u32,
+    message: Option<ServerMessage>,
+}
+
+impl Drop for ExportEnd<'_> {
+    fn drop(&mut self) {
+        {
+            let mut running = self.shared.export.lock().unwrap_or_else(|p| p.into_inner());
+            if running
+                .as_ref()
+                .is_some_and(|r| r.session == self.session && r.id == self.run)
+            {
+                *running = None;
+            }
+        }
+        let message = self
+            .message
+            .take()
+            .unwrap_or_else(|| ServerMessage::ExportFailed {
+                id: self.run,
+                code: protocol::errors::EXPORT_RENDER.into(),
+                message: "the export's thread stopped".into(),
+            });
+        // Over before the page is told: a page that has its end finds no thread left.
+        self.shared.export_threads.fetch_sub(1, Ordering::AcqRel);
+        self.shared.to_session_id(self.session, message);
+    }
+}
+
+/// The export under way (#319): the session that asked for it, its number, its cancel flag.
+struct RunningExport {
+    session: u64,
+    id: u32,
+    cancel: Arc<AtomicBool>,
+}
+
+impl Shared {
+    /// Sends `message` to session `id` while it is the current one.
+    fn to_session_id(&self, id: u64, message: ServerMessage) {
+        if let Ok(session) = self.session.lock()
+            && let Some(s) = session.as_ref().filter(|s| s.id == id)
+        {
+            let _ = s.tx.send(Out::Msg(message));
+        }
+    }
+
+    /// `export.start` of session `id` (#319): checked, then rendered and written on a thread of
+    /// its own, in the folder the session has open for the export's project (`crate::export`).
+    /// The answer: `export.failed` at once for a refused one, else `export.progress` and one
+    /// `export.done` or `export.failed` from the thread. Nothing for a session that is not the
+    /// current one.
+    fn export_start(
+        self: &Arc<Self>,
+        id: u64,
+        fields: crate::export::StartFields<'_>,
+    ) -> Option<ServerMessage> {
+        let run = fields.id;
+        let failed = |failure: crate::export::ExportFailure| ServerMessage::ExportFailed {
+            id: run,
+            code: failure.code.into(),
+            message: failure.message,
+        };
+        // Checked and decoded first, with no lock held (the streams may hold 64 MiB).
+        let request = match crate::export::parse(fields) {
+            Ok(request) => request,
+            Err(failure) => return Some(failed(failure)),
+        };
+        // The session and its place: under the session lock, then the link's, as everywhere.
+        let session = self.session.lock().expect("session lock");
+        if !session.as_ref().is_some_and(|s| s.id == id) {
+            return None;
+        }
+        let place = self
+            .link
+            .lock()
+            .expect("link lock")
+            .as_ref()
+            .is_some_and(|l| l.session == id && l.project == request.project);
+        let (_, folder) = self.open_folder.get();
+        let Some(folder) = folder.filter(|f| place && f.project() == request.project) else {
+            return Some(failed(crate::export::ExportFailure {
+                code: protocol::errors::EXPORT_NO_FOLDER,
+                message: "the helper has no folder open for this project".into(),
+            }));
+        };
+        let cancel = Arc::new(AtomicBool::new(false));
+        {
+            let mut running = self.export.lock().expect("export lock");
+            if running.is_some() {
+                return Some(failed(crate::export::ExportFailure {
+                    code: protocol::errors::EXPORT_BUSY,
+                    message: "an export runs already".into(),
+                }));
+            }
+            *running = Some(RunningExport {
+                session: id,
+                id: run,
+                cancel: cancel.clone(),
+            });
+            // Counted before the thread exists: it is over only once its `ExportEnd` drops.
+            self.export_threads.fetch_add(1, Ordering::AcqRel);
+        }
+        drop(session);
+        let shared = self.clone();
+        let spawned = std::thread::Builder::new()
+            .name("faulk-export".into())
+            .spawn(move || {
+                // Frees the slot and tells the page however the run ends, a panic included.
+                let mut end = ExportEnd {
+                    shared: &shared,
+                    session: id,
+                    run,
+                    message: None,
+                };
+                crate::export::lower_priority();
+                let watch = crate::export::RunWatch {
+                    cancel: &cancel,
+                    open: &shared.open_folder,
+                    folder: &folder,
+                };
+                let every = Duration::from_millis(protocol::EXPORT_PROGRESS_MS);
+                let outcome = crate::export::run(&request, &folder, &watch, every, |p| {
+                    shared.to_session_id(
+                        id,
+                        ServerMessage::ExportProgress {
+                            id: run,
+                            rendered: p.rendered,
+                            body: p.body,
+                            tail: p.tail,
+                        },
+                    );
+                });
+                end.message = Some(match outcome {
+                    Ok(done) => ServerMessage::ExportDone {
+                        id: run,
+                        path: done.path,
+                        bytes: done.bytes,
+                        written: done.written,
+                        peak: done.peak,
+                        clipped: done.clipped,
+                        reduction: done.reduction,
+                        silenced: done.silenced,
+                        tail_cut: done.tail_cut,
+                        missing: done.missing,
+                    },
+                    Err(failure) => {
+                        crate::log!(
+                            "export {run} ended without a file: {} ({})",
+                            failure.code,
+                            failure.message
+                        );
+                        ServerMessage::ExportFailed {
+                            id: run,
+                            code: failure.code.into(),
+                            message: failure.message,
+                        }
+                    }
+                });
+            });
+        if spawned.is_err() {
+            // No thread, so no `ExportEnd` to count it as over.
+            self.export_threads.fetch_sub(1, Ordering::AcqRel);
+            self.export.lock().expect("export lock").take();
+            return Some(failed(crate::export::ExportFailure {
+                code: protocol::errors::EXPORT_RENDER,
+                message: "the export's thread did not start".into(),
+            }));
+        }
+        None
+    }
+
+    /// `export.cancel` of session `id`: its export `run` stops (it answers `export.cancelled`).
+    /// The slot is free at once: the page may start the next export while the cancelled one
+    /// unwinds (it writes nothing more and removes its temporary file).
+    fn export_cancel(&self, id: u64, run: u32) {
+        let mut running = self.export.lock().unwrap_or_else(|p| p.into_inner());
+        if running
+            .as_ref()
+            .is_some_and(|r| r.session == id && r.id == run)
+            && let Some(r) = running.take()
+        {
+            r.cancel.store(true, Ordering::Release);
+        }
+    }
+
+    /// Session `id` ended or was replaced: its export stops, and the slot is free.
+    fn export_cancel_all(&self, id: u64) {
+        let mut running = self.export.lock().unwrap_or_else(|p| p.into_inner());
+        if running.as_ref().is_some_and(|r| r.session == id)
+            && let Some(r) = running.take()
+        {
+            r.cancel.store(true, Ordering::Release);
+        }
+    }
+
+    /// Whether an export runs now.
+    pub fn export_running(&self) -> bool {
+        self.export.lock().is_ok_and(|r| r.is_some())
+    }
+
+    /// Export threads not yet over (#792): a cancelled export frees its slot at once
+    /// ([`export_running`](Self::export_running) is false) while its thread still unwinds; at 0,
+    /// every run has dropped its write and told its page. The drop removes the temporary file
+    /// when the system lets it (best effort: a file another process holds stays until the page's
+    /// next sweep of `.faulk/tmp/`).
+    pub fn export_threads(&self) -> usize {
+        self.export_threads.load(Ordering::Acquire)
+    }
+
+    /// The folder the place session `id` named has open, for `project` when given (AU-7); `None`
+    /// without one. Called under the session lock.
+    fn session_folder(&self, id: u64, project: Option<&str>) -> Option<Arc<ProjectFolder>> {
+        let place = self
+            .link
+            .lock()
+            .expect("link lock")
+            .as_ref()
+            .is_some_and(|l| l.session == id && project.is_none_or(|p| l.project == p));
+        let (_, folder) = self.open_folder.get();
+        folder.filter(|f| place && project.is_none_or(|p| f.project() == p))
+    }
+
+    /// `import.choose` of session `id` (#778): the helper's file dialog, one dialog of the helper
+    /// at a time, for the folder the session has open. Answered `import.chosen` once the user
+    /// closed it (a token per file), or `import.failed` at once. Nothing for a session that is not
+    /// the current one.
+    fn import_choose(self: &Arc<Self>, id: u64, run: u32) -> Option<ServerMessage> {
+        let failed = move |code: &str, message: &str| ServerMessage::ImportFailed {
+            id: run,
+            code: code.into(),
+            message: message.into(),
+        };
+        let session = self.session.lock().expect("session lock");
+        if !session.as_ref().is_some_and(|s| s.id == id) {
+            return None;
+        }
+        let Some(folder) = self.session_folder(id, None) else {
+            return Some(failed(
+                protocol::errors::IMPORT_NO_FOLDER,
+                "the helper has no folder open for this session",
+            ));
+        };
+        let Some(taken) = self.dialog.take() else {
+            return Some(failed(
+                protocol::errors::IMPORT_BUSY,
+                "a dialog of the helper is open already",
+            ));
+        };
+        drop(session);
+        let shared = self.clone();
+        let title = crate::tray_text::import_dialog_title(self.lang, folder.name());
+        tokio::task::spawn_blocking(move || {
+            let picked = shared.picker.pick_files(&title);
+            drop(taken);
+            let message = match picked {
+                crate::disk::PickedFiles::Unavailable => failed(
+                    protocol::errors::IMPORT_DIALOG_UNAVAILABLE,
+                    "this system has no file dialog the helper can show",
+                ),
+                crate::disk::PickedFiles::Cancelled => ServerMessage::ImportChosen {
+                    id: run,
+                    files: Vec::new(),
+                },
+                crate::disk::PickedFiles::Files(paths) => ServerMessage::ImportChosen {
+                    id: run,
+                    files: shared.keep_picks(id, paths),
+                },
+            };
+            shared.to_session_id(id, message);
+        });
+        None
+    }
+
+    /// Keeps the files picked for session `id` and gives each its token: at most
+    /// [`MAX_PICKS`] per dialog, and [`MAX_PICKS`] held in all (the oldest dropped).
+    fn keep_picks(&self, id: u64, paths: Vec<std::path::PathBuf>) -> Vec<protocol::PickedFile> {
+        let mut picked = self.picked.lock().unwrap_or_else(|p| p.into_inner());
+        let now = Instant::now();
+        picked.retain(|p| now.duration_since(p.at) < IMPORT_TOKEN_TTL);
+        let mut files = Vec::new();
+        for path in paths.into_iter().take(MAX_PICKS) {
+            let token = crate::security::random_hex(16);
+            let name = path
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            picked.push(PickedEntry {
+                token: token.clone(),
+                session: id,
+                path,
+                at: now,
+            });
+            files.push(protocol::PickedFile { token, name });
+        }
+        let excess = picked.len().saturating_sub(MAX_PICKS);
+        picked.drain(..excess);
+        files
+    }
+
+    /// Takes the file of `token`, picked for session `id` and not expired: a token is used once.
+    fn take_picked(&self, id: u64, token: &str) -> Option<std::path::PathBuf> {
+        let mut picked = self.picked.lock().unwrap_or_else(|p| p.into_inner());
+        let now = Instant::now();
+        picked.retain(|p| now.duration_since(p.at) < IMPORT_TOKEN_TTL);
+        let at = picked.iter().position(|p| {
+            p.session == id
+                && crate::security::constant_time_eq(p.token.as_bytes(), token.as_bytes())
+        })?;
+        Some(picked.remove(at).path)
+    }
+
+    /// `import.start` of session `id` (#778): checked, then run on a thread of its own in the
+    /// folder the session has open for the import's project (`crate::import`). The answer:
+    /// `import.failed` at once for a refused one, else `import.progress` every
+    /// `IMPORT_PROGRESS_MS` while it runs and one `import.done` or `import.failed` from the
+    /// thread. Nothing for a session that is not the current one.
+    fn import_start(
+        self: &Arc<Self>,
+        id: u64,
+        run: u32,
+        project: &str,
+        source: protocol::ImportSource,
+    ) -> Option<ServerMessage> {
+        let failed = |code: &str, message: String| ServerMessage::ImportFailed {
+            id: run,
+            code: code.into(),
+            message,
+        };
+        if project::ProjectId::parse(project).is_err() {
+            return Some(failed(
+                protocol::errors::IMPORT_INVALID,
+                "the project id is not a ULID".into(),
+            ));
+        }
+        let session = self.session.lock().expect("session lock");
+        if !session.as_ref().is_some_and(|s| s.id == id) {
+            return None;
+        }
+        let Some(folder) = self.session_folder(id, Some(project)) else {
+            return Some(failed(
+                protocol::errors::IMPORT_NO_FOLDER,
+                "the helper has no folder open for this project".into(),
+            ));
+        };
+        let source = match source {
+            protocol::ImportSource::Folder { path } => ImportFrom::Folder(path),
+            protocol::ImportSource::Picked { token } => {
+                if !crate::disk::valid_nonce(&token) {
+                    return Some(failed(
+                        protocol::errors::IMPORT_INVALID,
+                        "a token is 32 lowercase hex digits".into(),
+                    ));
+                }
+                match self.take_picked(id, &token) {
+                    Some(path) => ImportFrom::Picked(path),
+                    None => {
+                        return Some(failed(
+                            protocol::errors::IMPORT_UNREADABLE,
+                            "no file of this session has this token (used, expired or unknown)"
+                                .into(),
+                        ));
+                    }
+                }
+            }
+        };
+        let cancel = Arc::new(AtomicBool::new(false));
+        {
+            let mut running = self.import.lock().expect("import lock");
+            if running.is_some() {
+                return Some(failed(
+                    protocol::errors::IMPORT_BUSY,
+                    "an import runs already".into(),
+                ));
+            }
+            *running = Some(RunningImport {
+                session: id,
+                id: run,
+                cancel: cancel.clone(),
+            });
+        }
+        drop(session);
+        let shared = self.clone();
+        let spawned = std::thread::Builder::new()
+            .name("faulk-import".into())
+            .spawn(move || {
+                // Frees the slot and tells the page however the run ends, a panic included.
+                let mut end = ImportEnd {
+                    shared: &shared,
+                    session: id,
+                    run,
+                    message: None,
+                };
+                crate::import::lower_priority();
+                let outcome = shared.run_import(id, run, &folder, source, &cancel);
+                end.message = Some(match outcome {
+                    Ok(done) => ServerMessage::ImportDone {
+                        id: run,
+                        hash: done.hash.to_string(),
+                        sample_rate: done.info.sample_rate,
+                        channels: done.info.channels,
+                        frames: done.info.frames,
+                        name: done.name,
+                        direct: done.direct,
+                        created: done.created,
+                        peaks: done.peaks,
+                    },
+                    Err(failure) => {
+                        crate::log!(
+                            "import {run} ended without a file: {} ({})",
+                            failure.code,
+                            failure.message
+                        );
+                        ServerMessage::ImportFailed {
+                            id: run,
+                            code: failure.code,
+                            message: failure.message,
+                        }
+                    }
+                });
+            });
+        if spawned.is_err() {
+            self.import.lock().expect("import lock").take();
+            return Some(failed(
+                protocol::errors::IMPORT_WRITE,
+                "the import's thread did not start".into(),
+            ));
+        }
+        None
+    }
+
+    /// Runs an import (on its own thread), telling session `id` how far it is every
+    /// `IMPORT_PROGRESS_MS` until it ends, whatever step it is in (a long copy, a slow commit):
+    /// the page never takes a busy helper for a silent one.
+    fn run_import(
+        &self,
+        id: u64,
+        run: u32,
+        folder: &ProjectFolder,
+        from: ImportFrom,
+        cancel: &AtomicBool,
+    ) -> Result<crate::import::Imported, crate::import::ImportFailure> {
+        let fraction = AtomicU64::new(0f64.to_bits());
+        let every = Duration::from_millis(protocol::IMPORT_PROGRESS_MS);
+        std::thread::scope(|scope| {
+            let work = scope.spawn(|| {
+                // The thread that reads and decodes: below the live output's callback.
+                crate::import::lower_priority();
+                let source = match &from {
+                    ImportFrom::Folder(path) => folder
+                        .open_source(path)
+                        .map_err(crate::import::source_failure)?,
+                    ImportFrom::Picked(path) => crate::import::open_picked(path)?,
+                };
+                let watch = crate::import::RunWatch {
+                    cancel,
+                    open: &self.open_folder,
+                    folder,
+                };
+                crate::import::run(source, folder, &watch, self.import_max_bytes, |f| {
+                    fraction.store(f.to_bits(), Ordering::Relaxed);
+                })
+            });
+            let mut told = Instant::now();
+            while !work.is_finished() {
+                std::thread::sleep(Duration::from_millis(10));
+                if told.elapsed() >= every {
+                    told = Instant::now();
+                    self.to_session_id(
+                        id,
+                        ServerMessage::ImportProgress {
+                            id: run,
+                            fraction: f64::from_bits(fraction.load(Ordering::Relaxed)),
+                        },
+                    );
+                }
+            }
+            work.join().unwrap_or_else(|_| {
+                Err(crate::import::ImportFailure::new(
+                    protocol::errors::IMPORT_WRITE,
+                    "the import panicked",
+                ))
+            })
+        })
+    }
+
+    /// `import.cancel` of session `id`: its import `run` stops (it answers `import.cancelled`, or
+    /// `import.done` when its blob was in place already). The slot is free at once.
+    fn import_cancel(&self, id: u64, run: u32) {
+        let mut running = self.import.lock().unwrap_or_else(|p| p.into_inner());
+        if running
+            .as_ref()
+            .is_some_and(|r| r.session == id && r.id == run)
+            && let Some(r) = running.take()
+        {
+            r.cancel.store(true, Ordering::Release);
+        }
+    }
+
+    /// Session `id` ended or was replaced: its import stops, the slot is free, and the files it
+    /// picked are forgotten.
+    fn import_end_session(&self, id: u64) {
+        {
+            let mut running = self.import.lock().unwrap_or_else(|p| p.into_inner());
+            if running.as_ref().is_some_and(|r| r.session == id)
+                && let Some(r) = running.take()
+            {
+                r.cancel.store(true, Ordering::Release);
+            }
+        }
+        self.picked
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .retain(|p| p.session != id);
+    }
+
+    /// Whether an import runs now.
+    pub fn import_running(&self) -> bool {
+        self.import.lock().is_ok_and(|r| r.is_some())
+    }
+}
+
+/// The most files one dialog hands over, and the most tokens held (#778).
+pub const MAX_PICKS: usize = 64;
+/// How long a picked file's token is valid.
+const IMPORT_TOKEN_TTL: Duration = Duration::from_secs(protocol::IMPORT_TOKEN_SECS);
+
+/// A file the user picked in the helper's dialog (#778), until `import.start` takes its token.
+struct PickedEntry {
+    token: String,
+    session: u64,
+    path: std::path::PathBuf,
+    at: Instant,
+}
+
+/// What an import reads.
+enum ImportFrom {
+    /// A path relative to the project's folder.
+    Folder(String),
+    /// A file the user picked in the helper's dialog.
+    Picked(std::path::PathBuf),
+}
+
+/// The import under way (#778): the session that asked for it, its number, its cancel flag.
+struct RunningImport {
+    session: u64,
+    id: u32,
+    cancel: Arc<AtomicBool>,
+}
+
+/// The end of an import's thread (#778): on drop, the slot is freed when it is still this run's,
+/// then the page is told, `message` or, when the thread panicked before setting it,
+/// `import.failed` `import.write`. Its temporary files went with the `PendingWrite`s' drops.
+struct ImportEnd<'a> {
+    shared: &'a Shared,
+    session: u64,
+    run: u32,
+    message: Option<ServerMessage>,
+}
+
+impl Drop for ImportEnd<'_> {
+    fn drop(&mut self) {
+        {
+            let mut running = self.shared.import.lock().unwrap_or_else(|p| p.into_inner());
+            if running
+                .as_ref()
+                .is_some_and(|r| r.session == self.session && r.id == self.run)
+            {
+                *running = None;
+            }
+        }
+        let message = self
+            .message
+            .take()
+            .unwrap_or_else(|| ServerMessage::ImportFailed {
+                id: self.run,
+                code: protocol::errors::IMPORT_WRITE.into(),
+                message: "the import's thread stopped".into(),
+            });
+        self.shared.to_session_id(self.session, message);
     }
 }
 
@@ -925,6 +1870,12 @@ async fn session(mut ws: Ws, shared: &Arc<Shared>) {
             shared.engine.release_all();
             // Its agents' calls end unanswered: the new page never answers them.
             shared.drop_calls(previous.id);
+            // Its project's folder closes with it: the next page names its own (AU-7).
+            shared.end_link(previous.id);
+            // Its export stops: nothing is written for a page that is gone (#319).
+            shared.export_cancel_all(previous.id);
+            // So does its import, and its picked files are forgotten (#778).
+            shared.import_end_session(previous.id);
         }
         *current = Some(Session {
             id,
@@ -1009,6 +1960,10 @@ async fn session(mut ws: Ws, shared: &Arc<Shared>) {
         shared.live.clear();
         shared.engine.release_all();
         shared.drop_calls(id);
+        // The page and its project are gone: so is its folder (AU-7).
+        shared.end_link(id);
+        shared.export_cancel_all(id);
+        shared.import_end_session(id);
         if let Ok(mut midi) = shared.midi.lock() {
             midi.disconnect();
         }

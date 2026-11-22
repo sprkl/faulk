@@ -35,11 +35,10 @@ fn the_throwaway_engine_applies_everything_and_rejects_nothing() {
     assert!(report.lowest_tick < 0, "{report:?}");
 }
 
-/// The warm-up inserts every device of the registry but the MIDI effects, which it does not
-/// place (none exists yet): the day one is added, this fails until the warm-up covers it.
+/// The warm-up inserts every device of the registry, MIDI effects included (#219: at the head
+/// of the first track's chain, so the warm-up's notes run through them).
 #[test]
 fn every_device_of_the_registry_is_warmed() {
-    use engine::device::DeviceRole;
     use engine::devices::REGISTRY;
     let inserted: Vec<_> = warm::messages()
         .iter()
@@ -50,12 +49,6 @@ fn every_device_of_the_registry_is_warmed() {
         })
         .collect();
     for builtin in REGISTRY {
-        assert_ne!(
-            builtin.descriptor.role,
-            DeviceRole::MidiEffect,
-            "extend engine::warm to place {}",
-            builtin.descriptor.kind
-        );
         assert!(
             inserted.contains(&builtin.descriptor.kind_id),
             "{} is not warmed",

@@ -31,6 +31,11 @@
 //! decoder does its math through the pure-Rust `libm`, so the native and the WebAssembly
 //! builds run the same scalar code.
 //!
+//! **Decoded size** (#780): a decode gives at most `project::limits::MAX_DECODED_BYTES`
+//! (16 GiB of `f32`), so a file that compresses very well never fills the disk with its PCM
+//! cache. Refused with [`ImportError::TooLarge`] at [`Decoding::open`] when the headers declare
+//! more, otherwise by the first block that would pass it, before the host receives it.
+//!
 //! Every failure is an [`ImportError`]; a panic inside a decoder (a bug of a dependency on a
 //! hostile file) is caught where unwinding exists and reported as [`ImportError::Corrupt`].
 //! In WebAssembly a panic aborts the instance: the page catches the trap, reports the same
@@ -49,6 +54,7 @@ pub use decode::{BLOCK_FRAMES, Decoding, MediaInfo, Source};
 pub use engine::audio_source::layout::{self, PcmLayout, SampleEncoding};
 pub use error::ImportError;
 pub use hash::Sha256;
+pub use project::limits::MAX_DECODED_BYTES;
 
 use std::io::{Read, Seek, SeekFrom};
 

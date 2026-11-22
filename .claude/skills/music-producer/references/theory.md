@@ -45,6 +45,8 @@ The minimum needed to make decisions that hold up: pulse and grid, scales and ke
 - **Inversions** put a chord note other than the root at the bottom: first inversion (3rd in the bass, written C/E), second (5th, C/G), third for sevenths (7th, Cm7/Bb). **Voicing** is the full arrangement of the notes: which octave, what is doubled, how wide. Same chord, different voicing, different weight.
 - **Voice leading** keeps notes shared by adjacent chords in place and moves the others by step; it sounds smooth and conventional. **Parallel motion** (planing) moves every note by the same interval; it sounds floating, modern, often non-diatonic. Both are valid; the choice is the sound.
 - **Non-diatonic** chords contain notes outside the key. Used sparingly they are colour (a borrowed iv in a major key, a chromatic passing chord); used systematically (parallel minor sevenths) they suspend the key altogether.
+- **Sus chords** (sus2, sus4) put the 2nd or the 4th in place of the 3rd and sound open, neither major nor minor. Held unresolved for a phrase, they build tension without another part; resolve them at the peak, or never.
+- **Key change** (modulation) moves the whole cycle to a new tonic. Three practical kinds: a **lift** up a whole step or a minor third, around 65–75 % of the track; a **pivot**, through a chord both keys share (smooth); a **direct cut**, with no pivot: one beat of silence or a riser, and a note common to both keys held across the join. Thin the texture a bar or two before it. At most one per track under six minutes.
 
 ## Progressions
 
@@ -55,6 +57,11 @@ The minimum needed to make decisions that hold up: pulse and grid, scales and ke
 - **Parallel m7 planing**: the same minor seventh voicing copied to several roots (for instance roots a 4th and a 5th apart, or a 3rd). No single key contains the result; the sound is vague and warm.
 - **Harmonising a melody**: collect the notes the melody emphasises (long, accented, repeated) and pick chords that contain them; notes between two chord tones are **passing tones** and need no support. Degrees I and V are the first candidates; IV, vi and ii follow.
 - Tension and release come from leaving the tonic and coming back. Changing chords every bar or every two bars at 4-bar phrase lengths keeps the cycle legible; faster changes are for pre-chorus lifts and turnarounds.
+- **A cycle belongs to a section, not to the track.** Plan a chord picture per section: A, B, break and peak each get their own cycle, or at least their own order, bass or voicing. Sections change every 16 or 32 bars; the chords inside change every 1 or 2.
+- **The same chords, another weight**: start the cycle on another chord (rotation), put the 3rd or 5th in the bass for a whole pass (inversion), or hold the tonic in the bass under the moving chords (**pedal**) and move the bass only with the next section. Each gives a new passage from the same notes.
+- **Two cycles that alternate**: one inside the key, one with a borrowed colour (a ♭II, a ♭VI, or the tonic chord turning from major to minor inside the cycle), swapped by section over a constant groove. The sections then come from harmony, not from adding parts.
+- **Acceleration before the peak**: chords every two bars, then every bar, then every half bar in the last two bars before the peak; or a bass that steps down one degree per bar through a longer cycle (i, ♭VII, ♭VI, v… in minor) for the last peak only.
+- **A mode change on one tonic**: the same root with the parallel scale (minor to major, aeolian to dorian), strongest in a stripped passage of 4 to 8 bars before the full band returns.
 
 ## Bass
 

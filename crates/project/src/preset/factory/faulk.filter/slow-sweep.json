@@ -1,0 +1,25 @@
+{
+  "category": "Movement",
+  "device": "faulk.filter",
+  "format": 1,
+  "name": "Slow Sweep",
+  "params": {
+    "cutoff": 900.0,
+    "drive": 0.0,
+    "env_amount": 0.0,
+    "env_attack": 0.01,
+    "env_release": 0.15,
+    "lfo_depth": 2.5,
+    "lfo_division": 11.0,
+    "lfo_phase": 270.0,
+    "lfo_rate": 1.0,
+    "lfo_restart": 1.0,
+    "lfo_shape": 0.0,
+    "lfo_stereo": 0.0,
+    "lfo_sync": 1.0,
+    "mix": 1.0,
+    "mode": 0.0,
+    "resonance": 0.35
+  },
+  "version": 1
+}

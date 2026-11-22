@@ -47,6 +47,8 @@ export interface EffectPorts {
   loadFolderVersion(): void
   /** `project.allow_access`: ask the browser for the permission again, then write what waited. */
   allowAccess(): void
+  /** `project.choose_helper_folder`: in Boost, the helper shows its folder dialog for the project's folder (AU-7). */
+  chooseHelperFolder(): void
   /** `project.export_audio`: the page renders the song to a WAV file (the dialog opens with these settings). */
   exportAudio(request: ExportRequest): void
   /** `clip.choose_audio`: the user picks audio files, and each is imported into the track (AU-1). */
@@ -128,6 +130,9 @@ export function applyEffects(command: Command, ports: EffectPorts) {
       return
     case 'project.allow_access':
       ports.allowAccess()
+      return
+    case 'project.choose_helper_folder':
+      ports.chooseHelperFolder()
       return
     case 'clip.choose_audio':
       ports.chooseAudio(command.track)

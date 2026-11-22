@@ -609,7 +609,7 @@ test('piano roll: the Length field sets the written length whatever the snap, an
   await page.keyboard.press('ArrowDown')
   await page.keyboard.press('Enter')
   await expect.poll(async () => (await shape()).find((n) => n[1] === 58)).toEqual([0, 58, 3840])
-  await expect(said).toContainText('Note added, A#3, Length 1 bar, cut at the end of the clip')
+  await expect(said).toContainText('Note added, A♯3, Length 1 bar, cut at the end of the clip')
   // From the free cursor, Alt+Shift+Left shortens the selection (the note just written) by one step.
   await page.keyboard.press('Escape')
   await expect(page.getByTestId('roll-cursor')).toBeFocused()
@@ -650,11 +650,12 @@ test('piano roll: Repeat fills the bar end to end from the keyboard, Repeat unti
     [480, 64],
     [720, 67],
   ] as const
+  await stage(page).getByTestId('timegrid').focus()
   const written = figure.map(([s, p]) => [s, p, 240])
   for (const [tick, pitch] of figure) await page.mouse.click(g.x(tick + 10), g.y(pitch))
   await expect.poll(shape).toEqual(written)
   await expect(page.getByTestId('roll-repeat')).toHaveText('Repeat')
-  await expect(page.getByTestId('roll-repeat')).toHaveAttribute('title', /end to end, up to the end of the bar/)
+  await expect(page.getByTestId('roll-repeat')).toHaveAttribute('title', /end to end, up to the end of the bar .*every beat up to half a bar, every bar beyond/)
   await expect(page.getByTestId('roll-duplicate')).toHaveAttribute('title', /one bar later/)
 
   // From a note's cell, the whole figure selected: Ctrl+Shift+R fills bar 1, said, one history entry.
@@ -665,7 +666,7 @@ test('piano roll: Repeat fills the bar end to end from the keyboard, Repeat unti
   await expect(roll(page)).toHaveAttribute('data-note-count', '16')
   const filled = [0, 1, 2, 3].flatMap((k) => figure.map(([s, p]) => [s + k * 960, p, 240]))
   expect(await shape()).toEqual(filled)
-  await expect(said).toHaveText('Repeated: 12 new notes')
+  await expect(said).toHaveText('Repeated: 12 notes, every 1 beat')
   // The arrangement's own "Repeat until" did not take the same press (it would open, or say to select one clip).
   await expect(page.getByTestId('repeat-dialog')).not.toBeVisible()
   await expect(page.getByTestId('arr-said')).not.toContainText('Select one clip')
@@ -709,14 +710,14 @@ test('piano roll: Repeat fills the bar end to end from the keyboard, Repeat unti
   await page.keyboard.press('Enter')
   await expect(dialog).not.toBeVisible()
   await expect.poll(async () => (await notes(page)).length).toBe(12)
-  await expect(said).toHaveText('Repeated: 8 new notes')
+  await expect(said).toHaveText('Repeated: 8 notes, every 1 beat')
   await expect(focused).toHaveAttribute('aria-label', /^C4, bar 1 beat 2,/)
   await page.keyboard.press('Control+z')
   await expect.poll(shape).toEqual(written)
   await repeatUntil()
   await page.getByTestId('roll-repeat-field').fill('2')
   await page.keyboard.press('Enter')
-  await expect(said).toHaveText('Repeated: 12 new notes, cut at the end of the clip')
+  await expect(said).toHaveText('Repeated: 12 notes, every 1 beat, cut at the end of the clip')
   expect(await shape()).toEqual(filled)
 
   // From a note's cell with nothing selected, that note alone is repeated, as Alt+arrows act on it.
@@ -727,7 +728,7 @@ test('piano roll: Repeat fills the bar end to end from the keyboard, Repeat unti
   await expect(roll(page)).toHaveAttribute('data-selected-count', '0')
   await page.getByTestId('roll-item').first().focus()
   await page.keyboard.press('Control+Shift+R')
-  await expect(said).toHaveText('Repeated: 15 new notes')
+  await expect(said).toHaveText('Repeated: 15 notes, every 0.25 beats')
   await expect(roll(page)).toHaveAttribute('data-selected-count', '15')
 
   // The toolbar button at the keyboard: the focus goes to the first copy too, so Alt+Up reaches the copies.
@@ -737,15 +738,81 @@ test('piano roll: Repeat fills the bar end to end from the keyboard, Repeat unti
   await page.keyboard.press('Control+a')
   await page.getByTestId('roll-repeat').focus()
   await page.keyboard.press('Enter')
-  await expect(said).toHaveText('Repeated: 12 new notes')
+  await expect(said).toHaveText('Repeated: 12 notes, every 1 beat')
   await expect(focused).toHaveAttribute('aria-label', /^C4, bar 1 beat 2,/)
   expect(seen.errors).toEqual([])
 })
 
+// #770: a bar of drums whose last note ends before the bar line repeats every bar, whatever the quantize grid: copied into
+// bar 2, said with its period, in English and in French; once bar 2 is full, a second press has no room and says so.
+for (const lang of ['en', 'fr'] as const) {
+  const words = {
+    en: { said: 'Repeated: 10 notes, every 1 bar', noRoom: 'No room for a copy before the end of the clip', until: 'Repeat until…', from: 'from 2.1' },
+    fr: {
+      said: 'Répété : 10 notes, toutes les 1 mesure',
+      noRoom: 'Pas de place pour une copie avant la fin du clip',
+      until: 'Répéter jusqu’à…',
+      from: 'à partir de 2.1',
+    },
+  }[lang]
+  test(`piano roll: Repeat copies a bar of drums into the next bar and says the period (${lang})`, async ({ page }) => {
+    test.setTimeout(120_000)
+    const { seen } = await openRoll(page, lang === 'fr' ? 'fr' : undefined)
+    await page.getByTestId('roll-longer').click()
+    await expect(page.getByTestId('roll-length')).toHaveValue('2')
+    await page.getByTestId('roll-snap').selectOption('quarter-beat')
+    const g = await spot(page)
+    const shape = async () => (await notes(page)).map((n) => [n.start, n.pitch, n.length])
+    // Kick (C4) on every beat, snare (D4) on 2 and 4, a hi-hat (E4) on each off-beat: the last one ends at beat 4.75.
+    const bar = [
+      [0, 60],
+      [480, 64],
+      [960, 60],
+      [960, 62],
+      [1440, 64],
+      [1920, 60],
+      [2400, 64],
+      [2880, 60],
+      [2880, 62],
+      [3360, 64],
+    ] as const
+    for (const [tick, pitch] of bar) await page.mouse.click(g.x(tick + 10), g.y(pitch))
+    await expect.poll(async () => (await notes(page)).length).toBe(10)
+    const written = await shape()
+    await page.getByTestId('roll-item').first().focus()
+    await page.keyboard.press('Control+a')
+    await page.keyboard.press('Control+Shift+R')
+    await expect(roll(page)).toHaveAttribute('data-note-count', '20')
+    await expect(page.getByTestId('roll-said')).toHaveText(words.said)
+    const copied = written.map(([s, p, l]) => [s! + 3840, p, l])
+    expect(await shape()).toEqual([...written, ...copied])
+    // The copies are the selection: again, they would start at the clip's end.
+    await page.keyboard.press('Control+Shift+R')
+    await expect(page.getByTestId('roll-said')).toHaveText(words.noRoom)
+    await expect(roll(page)).toHaveAttribute('data-note-count', '20')
+    // "Repeat until…" keeps that period: up to the end of bar 2, the same ten copies.
+    await page.keyboard.press('Control+z')
+    await expect.poll(shape).toEqual(written)
+    await page.getByTestId('roll-item').first().focus()
+    await page.keyboard.press('Control+a')
+    await page.mouse.click(g.x(10), g.y(60), { button: 'right' })
+    await page.getByRole('menuitem', { name: words.until }).click()
+    await expect(page.getByTestId('roll-repeat-dialog')).toContainText(words.from)
+    await page.getByTestId('roll-repeat-field').fill('2')
+    await page.keyboard.press('Enter')
+    await expect(page.getByTestId('roll-said')).toHaveText(words.said)
+    expect(await shape()).toEqual([...written, ...copied])
+    expect(seen.errors).toEqual([])
+  })
+}
+
 test('piano roll: Repeat speaks French', async ({ page }) => {
   const { seen } = await openRoll(page, 'fr')
   await expect(page.getByTestId('roll-repeat')).toHaveText('Répéter')
-  await expect(page.getByTestId('roll-repeat')).toHaveAttribute('title', /à la suite, jusqu’à la fin de la mesure/)
+  await expect(page.getByTestId('roll-repeat')).toHaveAttribute(
+    'title',
+    /à la suite, jusqu’à la fin de la mesure .*à chaque temps jusqu’à une demi-mesure, à chaque mesure au-delà/,
+  )
   await expect(page.getByTestId('roll-duplicate')).toHaveAttribute('title', /une mesure plus loin/)
   await expect(page.getByTestId('roll-repeat')).toBeDisabled()
 
@@ -773,9 +840,142 @@ test('piano roll: Repeat speaks French', async ({ page }) => {
   await expect.poll(() => page.evaluate(() => (window as unknown as { __prevented?: boolean }).__prevented)).toBe(true)
   await expect(page.getByTestId('roll-repeat-field')).toHaveValue('1,3')
   await page.keyboard.press('Enter')
-  await expect(page.getByTestId('roll-said')).toHaveText(/^Répété : \d+ nouvelles notes/)
+  await expect(page.getByTestId('roll-said')).toHaveText(/^Répété : (1 note|\d+ notes), (tous les [\d.]+ temps|toutes les \d+ mesures?)/)
   expect(seen.errors).toEqual([])
 })
+
+// #771: at the keyboard, a bare arrow moves the focus and keeps the selection, Space or Enter selects the focused note, Shift
+// extends; Ctrl+V pastes at the focused cursor or note with the pitches kept, said, and a paste that writes nothing is said;
+// Home, End and Ctrl+Left or Right take the cursor to the clip's start, its end and by a bar, whatever the snap; each in the
+// shortcut list, in English and in French.
+for (const lang of ['en', 'fr'] as const) {
+  const words = {
+    en: {
+      selected: 'Note selected',
+      pasted: 'Pasted: 3 notes at bar 2 beat 1',
+      none: 'Nothing pasted: these notes are already there',
+      empty: 'Nothing to paste: copy notes first',
+      bar: 'bar',
+      beat: 'beat',
+      ends: 'Move the free cursor to the start or the end of the clip',
+      byBar: 'Move the free cursor by a bar, whatever the snap',
+      select: 'On a note: select it (and hear it)',
+      duplicated: 'Duplicated: 3 notes, selected',
+    },
+    fr: {
+      selected: 'Note sélectionnée',
+      pasted: 'Collé : 3 notes à la mesure 2 temps 1',
+      none: 'Rien n’a été collé : ces notes sont déjà là',
+      empty: 'Rien à coller : copiez d’abord des notes',
+      bar: 'mesure',
+      beat: 'temps',
+      ends: 'Amener le curseur libre au début ou à la fin du clip',
+      byBar: 'Déplacer le curseur libre d’une mesure, quel que soit le magnétisme',
+      select: 'Sur une note : la sélectionner (et l’entendre)',
+      duplicated: 'Dupliqué : 3 notes, sélectionnées',
+    },
+  }[lang]
+  const at = (bar: number, beat: string) => new RegExp(`${words.bar} ${bar} ${words.beat} ${beat.replace('.', '\\.')}$`)
+  test(`piano roll at the keyboard: focus keeps the selection, paste at the cursor, the cursor's jumps (${lang})`, async ({ page }) => {
+    test.setTimeout(120_000)
+    const { seen } = await openRoll(page, lang === 'fr' ? 'fr' : undefined)
+    await page.getByTestId('roll-longer').click()
+    await expect(page.getByTestId('roll-length')).toHaveValue('2')
+    await page.getByTestId('roll-snap').selectOption('quarter-beat')
+    const g = await spot(page)
+    const shape = async () => (await notes(page)).map((n) => [n.start, n.pitch, n.length])
+    const said = page.getByTestId('roll-said')
+    const focused = page.locator('[data-testid=roll-items] :focus')
+    const cursor = page.getByTestId('roll-cursor')
+    for (const [tick, pitch] of [
+      [0, 60],
+      [240, 64],
+      [480, 67],
+    ] as const)
+      await page.mouse.click(g.x(tick + 10), g.y(pitch))
+    await expect.poll(async () => (await notes(page)).length).toBe(3)
+    const written = await shape()
+
+    // Ctrl+V with nothing copied: said.
+    await page.getByTestId('roll-item').first().focus()
+    await page.keyboard.press('Control+v')
+    await expect(said).toHaveText(words.empty)
+
+    // All selected, then bare arrows: the focus moves, the selection stays.
+    await page.keyboard.press('Control+a')
+    await expect(roll(page)).toHaveAttribute('data-selected-count', '3')
+    await page.keyboard.press('ArrowRight')
+    await page.keyboard.press('ArrowRight')
+    await expect(focused).toHaveAttribute('data-note', /^480:67:/)
+    await expect(roll(page)).toHaveAttribute('data-selected-count', '3')
+    // Space selects the focused note alone, Shift+Left adds the previous one, Enter selects the focused one alone again.
+    await page.keyboard.press('Space')
+    await expect(roll(page)).toHaveAttribute('data-selected-count', '1')
+    await expect(said).toHaveText(words.selected)
+    await expect(page.getByTestId('feedback')).toHaveAttribute('data-transport', 'stopped')
+    await page.keyboard.press('Shift+ArrowLeft')
+    await expect(roll(page)).toHaveAttribute('data-selected-count', '2')
+    await page.keyboard.press('Enter')
+    await expect(roll(page)).toHaveAttribute('data-selected-count', '1')
+
+    // Copy the three, free the cursor, Ctrl+Right takes it a bar later whatever the snap; Ctrl+V pastes there, pitches kept.
+    await page.keyboard.press('Control+a')
+    await page.keyboard.press('Control+c')
+    await page.keyboard.press('Escape')
+    await expect(cursor).toBeFocused()
+    await page.keyboard.press('Home')
+    await expect(cursor).toHaveAccessibleName(at(1, '1'))
+    await page.keyboard.press('Control+ArrowRight')
+    await expect(cursor).toHaveAccessibleName(at(2, '1'))
+    await page.keyboard.press('Control+v')
+    await expect(roll(page)).toHaveAttribute('data-note-count', '6')
+    await expect(said).toHaveText(words.pasted)
+    expect(await shape()).toEqual([...written, ...written.map(([st, p, l]) => [st! + 3840, p, l])])
+    // The pasted notes are the selection, the focus on the first one: one history entry.
+    await expect(roll(page)).toHaveAttribute('data-selected-count', '3')
+    await expect(focused).toHaveAttribute('data-note', /^3840:60:/)
+    // Again from that note: at its start, where the same notes are: nothing written, said.
+    await page.keyboard.press('Control+v')
+    await expect(said).toHaveText(words.none)
+    await expect(roll(page)).toHaveAttribute('data-note-count', '6')
+    await page.keyboard.press('Control+z')
+    await expect.poll(shape).toEqual(written)
+
+    // Ctrl+D from a note: the copies are the selection, said, and the first one takes the focus, so Alt+Up moves them.
+    await page.getByTestId('roll-item').first().focus()
+    await page.keyboard.press('Control+a')
+    await page.keyboard.press('Control+d')
+    await expect(said).toHaveText(words.duplicated)
+    await expect(focused).toHaveAttribute('data-note', /^3840:60:/)
+    await page.keyboard.press('ArrowRight')
+    await page.keyboard.press('Alt+ArrowUp')
+    await expect.poll(shape).toEqual([...written, ...written.map(([st, p, l]) => [st! + 3840, p! + 1, l])])
+    await page.keyboard.press('Control+z')
+    await page.keyboard.press('Control+z')
+    await expect.poll(shape).toEqual(written)
+
+    // End: the last step of the clip; Ctrl+Left a bar back, twice: stopped at the start.
+    await page.getByTestId('roll-item').first().focus()
+    await page.keyboard.press('Escape')
+    await expect(cursor).toBeFocused()
+    await page.keyboard.press('End')
+    await expect(cursor).toHaveAccessibleName(at(2, '4.75'))
+    await page.keyboard.press('Control+ArrowLeft')
+    await expect(cursor).toHaveAccessibleName(at(1, '4.75'))
+    await page.keyboard.press('Control+ArrowLeft')
+    await expect(cursor).toHaveAccessibleName(at(1, '1'))
+    // The snap did not change.
+    await expect(page.getByTestId('roll-snap')).toHaveValue('quarter-beat')
+
+    // The shortcut list names each key.
+    await page.getByTestId('shortcuts-open').click()
+    const list = page.getByTestId('shortcuts-dialog')
+    await expect(list).toContainText(words.ends)
+    await expect(list).toContainText(words.byBar)
+    await expect(list).toContainText(words.select)
+    expect(seen.errors).toEqual([])
+  })
+}
 
 // #711: the snap's triplets. The cursor steps by a third of a beat (bar 1 beat 1.33, 1.67), Enter writes a note of that
 // length, Alt+Left and Right move it by that step, a click draws on it, and a sixteenth triplet halves the step.
@@ -838,5 +1038,125 @@ test('piano roll: a triplet snap steps the cursor, writes, moves and draws on tr
     [480, pitch + 1, 320],
     [1280, 62, 320],
   ])
+  expect(seen.errors).toEqual([])
+})
+
+test('piano roll: the tool and the snap stay across clips, and a click that gives the focus writes no note (#835)', async ({ page }) => {
+  test.setTimeout(120_000)
+  const { seen, warnings } = await openRoll(page)
+  const select = page.getByTestId('roll-tool-select')
+  await select.click()
+  await page.getByTestId('roll-snap').selectOption('beat')
+
+  // The roll is built again when the panel comes back (as for another clip): it keeps the tool and the snap.
+  await page.getByTestId('panel-devices').click()
+  await page.getByTestId('panel-piano-roll').click()
+  await expect(roll(page)).toHaveAttribute('data-note-count', '0')
+  await expect(page.getByTestId('roll-tool-select')).toHaveAttribute('aria-checked', 'true')
+  await expect(page.getByTestId('roll-tool-draw')).toHaveAttribute('aria-checked', 'false')
+  await expect(page.getByTestId('roll-snap')).toHaveValue('beat')
+
+  // With the focus outside the roll, a click in Select writes nothing, and neither does the one in Draw that only gives the focus.
+  const g = await spot(page)
+  await page.mouse.click(g.x(1000), g.y(62))
+  await expect(roll(page)).toHaveAttribute('data-note-count', '0')
+  await page.getByTestId('roll-tool-draw').click()
+  await page.getByTestId('panel-devices').click()
+  await page.getByTestId('panel-piano-roll').click()
+  await expect(page.getByTestId('roll-tool-draw')).toHaveAttribute('aria-checked', 'true')
+  await page.mouse.click(g.x(1000), g.y(62))
+  await expect(roll(page)).toHaveAttribute('data-note-count', '0')
+  await expect(page.getByTestId('timegrid')).toBeFocused()
+
+  // The next click draws, in sight, and says it.
+  await page.mouse.click(g.x(1000), g.y(62))
+  await expect(roll(page)).toHaveAttribute('data-note-count', '1')
+  await expect(page.getByTestId('roll-said')).toHaveText(/^Note added/)
+  const [note] = await notes(page)
+  expect(note!.pitch).toBe(62)
+  expect(warnings).toEqual([])
+  expect(seen.errors).toEqual([])
+})
+
+test('piano roll: opening a second clip from the arrangement keeps the tool, the snap and the drawn length; the first click only gives the focus (#835)', async ({
+  page,
+}) => {
+  test.setTimeout(120_000)
+  const seen = watch(page)
+  const warnings: string[] = []
+  page.on('console', (message) => {
+    if (message.type() === 'warning') warnings.push(message.text())
+  })
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/app')
+  await page.getByTestId('engine-state').getByRole('button').click()
+  await engineUp(page)
+
+  // Two clips in the arrangement, bars 1 and 2, then the arrangement's cells by the keyboard.
+  await page.getByTestId('nav-arrangement').click()
+  const arr = page.getByTestId('arr-stage')
+  await expect.poll(async () => Number(await arr.getByTestId('timegrid').getAttribute('data-draw-count'))).toBeGreaterThan(0)
+  const abox = (await arr.boundingBox())!
+  const appt = Number(await arr.getByTestId('timegrid').getAttribute('data-px-per-tick'))
+  const lane = abox.y + RULER + 32
+  await page.mouse.dblclick(abox.x + 100 * appt, lane)
+  await expect(page.getByTestId('arrangement')).toHaveAttribute('data-block-count', '1')
+  await page.mouse.dblclick(abox.x + (3840 + 100) * appt, lane)
+  await expect(page.getByTestId('arrangement')).toHaveAttribute('data-block-count', '2')
+  // The arrangement has a time grid too: the roll's own is the one inside its stage.
+  const rollSpot = async () => {
+    const box = (await stage(page).boundingBox())!
+    const ppt = Number(await stage(page).getByTestId('timegrid').getAttribute('data-px-per-tick'))
+    const scrollY = await num(page, 'roll-stage', 'data-scroll-y')
+    return { x: (tick: number) => box.x + tick * ppt, y: (pitch: number) => box.y + RULER + (127 - pitch) * ROW - scrollY + ROW / 2 }
+  }
+  const items = page.getByTestId('arr-item')
+  const openItem = async (n: number) => {
+    await items.nth(n).focus()
+    await page.keyboard.press('Enter')
+  }
+
+  // First clip, opened by Enter: a long note in Draw (the length is kept), then Select and a snap.
+  await openItem(0)
+  await expect(roll(page)).toBeVisible()
+  const firstClip = await roll(page).getAttribute('data-clip')
+  await page.getByTestId('roll-tool-draw').click()
+  await page.getByTestId('roll-snap').selectOption('beat')
+  await expect.poll(async () => Number(await stage(page).getByTestId('timegrid').getAttribute('data-draw-count'))).toBeGreaterThan(0)
+  const g = await rollSpot()
+  await page.mouse.move(g.x(100), g.y(62))
+  await page.mouse.down()
+  await page.mouse.move(g.x(1500), g.y(62), { steps: 4 })
+  await page.mouse.move(g.x(2900), g.y(62), { steps: 4 })
+  await page.mouse.up()
+  await expect(roll(page)).toHaveAttribute('data-note-count', '1')
+  const drawnLength = (await notes(page))[0]!.length
+  expect(drawnLength).toBeGreaterThan(960)
+  await page.getByTestId('roll-tool-select').click()
+
+  // Second clip, opened the same way: the tool, the snap and the length are the ones in use.
+  await openItem(1)
+  await expect(roll(page)).not.toHaveAttribute('data-clip', firstClip!)
+  await expect(roll(page)).toHaveAttribute('data-note-count', '0')
+  await expect(page.getByTestId('roll-tool-select')).toHaveAttribute('aria-checked', 'true')
+  await expect(page.getByTestId('roll-snap')).toHaveValue('beat')
+  const second = await rollSpot()
+  await page.mouse.click(second.x(1000), second.y(62))
+  await expect(roll(page)).toHaveAttribute('data-note-count', '0')
+
+  // Back to Draw, then the second clip again from the arrangement: the first click gives the focus and writes nothing.
+  await page.getByTestId('roll-tool-draw').click()
+  await openItem(1)
+  await expect(page.getByTestId('roll-tool-draw')).toHaveAttribute('aria-checked', 'true')
+  await page.mouse.click(second.x(1000), second.y(62))
+  await expect(roll(page)).toHaveAttribute('data-note-count', '0')
+  // The next click writes one note, in sight, of the length kept, and says so.
+  await page.mouse.click(second.x(1000), second.y(62))
+  await expect(roll(page)).toHaveAttribute('data-note-count', '1')
+  await expect(page.getByTestId('roll-said')).toHaveText(/^Note added/)
+  const [written] = await notes(page)
+  expect(written!.pitch).toBe(62)
+  expect(written!.length).toBe(drawnLength)
+  expect(warnings).toEqual([])
   expect(seen.errors).toEqual([])
 })

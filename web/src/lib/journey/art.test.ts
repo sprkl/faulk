@@ -32,7 +32,7 @@ describe('journey cover', () => {
     for (const e of ENTRIES) {
       const art = artOf(e)
       expect(art.foci.map((f) => f.color)).toEqual(e.tracks.slice(0, 8).map((t) => t.color.toLowerCase()))
-      expect(art.object.kind).toBe({ minor: 'orb', dorian: 'ring', major: 'tile' }[e.key.mode as 'minor' | 'dorian' | 'major'])
+      expect(art.object.kind).toBe({ minor: 'orb', phrygian: 'orb', dorian: 'ring', mixolydian: 'ring', major: 'tile', lydian: 'tile' }[e.key.mode])
       expect(art.form).toHaveLength(e.sections.reduce((n, s) => n + s.bars * s.parts, 0))
       expect(new Set(art.form.map((d) => d.x)).size).toBe(e.bars)
       for (const p of [...art.foci, ...art.form]) {

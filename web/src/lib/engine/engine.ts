@@ -1,5 +1,11 @@
-import type { AgentResult, Command, HelperUpdate, MidiInput } from '../generated/protocol'
+import type { AgentResult, Command, FolderStatus, HelperUpdate, MidiInput, ServerMessage } from '../generated/protocol'
 import type { FeedbackReport } from './feedback'
+
+/** The helper's messages about its export (#319). */
+export type HelperExportMessage = Extract<ServerMessage, { type: 'export.progress' | 'export.done' | 'export.failed' }>
+
+/** The helper's messages about its imports and its file dialog (#778). */
+export type HelperImportMessage = Extract<ServerMessage, { type: 'import.chosen' | 'import.progress' | 'import.done' | 'import.failed' }>
 
 export type EngineKind = 'web' | 'native'
 
@@ -40,6 +46,15 @@ export interface EngineEvents {
    * came from, once. `signal` aborts when that session ends: the call can no longer be answered (AG-4).
    */
   onAgentCall?(agent: string, command: unknown, answer: (result: AgentResult) => void, signal: AbortSignal): void
+  /**
+   * Native engine only: where the helper's folder of the page's project stands (`folder.state`, AU-7):
+   * the project it is about (`null` after `folder.close`) and its state.
+   */
+  onFolderState?(project: string | null, state: FolderStatus): void
+  /** Native engine only: how the helper's export goes (`export.progress`, `export.done`, `export.failed`, #319). */
+  onExport?(message: HelperExportMessage): void
+  /** Native engine only: how the helper's imports and its file dialog go (`import.chosen`, `import.progress`, `import.done`, `import.failed`, #778). */
+  onImport?(message: HelperImportMessage): void
   /** Native engine only: an agent left (`agent.left`, #641): its last MCP session ended or it stayed silent too long. */
   onAgentLeft?(agent: string): void
   onError(code: string): void
@@ -51,6 +66,17 @@ export interface EngineEvents {
    * `epoch`, the one it reported (BO-1).
    */
   onStreamRefused?(code: number, at: number, epoch?: number): void
+  /**
+   * Web engine only: the audio output stopped pulling the engine (`true`), or pulls it again (`false`), told on each
+   * change (#810): the context's clock stood still while the page expects it to run, so nothing plays and the report
+   * stays frozen.
+   */
+  onOutputStall?(stalled: boolean): void
+  /**
+   * Web engine only: the engine stopped responding (`true`) while the output pulls it, or responds again (`false`), told
+   * on each change (#877): the context's clock runs but the engine's report no longer advances, so nothing new plays.
+   */
+  onEngineStall?(stalled: boolean): void
   /** The engine stopped on its own (helper gone, session replaced). */
   onClosed(): void
 }

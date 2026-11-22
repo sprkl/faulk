@@ -1,0 +1,2 @@
+2026-11-13
+* **Update** (#838): an audio effect without a latency line that moves into the slot of a removed device with a line (a Compressor, a Ceiling) is no longer built again: it runs behind the removed device, hearing its line (the slot's old timing), and the slot's switch (#761) catches it up with the slots after it, so a reverb's or an echo's tail goes on, on a track and on the master. A removed Compressor without look-ahead now leaves its slot once faded into its line instead of holding it for ever. `specs/02-decoupage-mvp.md` (MO-3 device fades) describes it.

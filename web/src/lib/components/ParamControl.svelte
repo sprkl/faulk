@@ -18,6 +18,7 @@
     onchange,
     onbegin,
     onend,
+    live,
   }: {
     device: DeviceDescriptor
     param: ParamDescriptor
@@ -29,6 +30,8 @@
     /** A drag starts and ends (knobs only): the owner groups it as one history entry. */
     onbegin?: () => void
     onend?: () => void
+    /** The value the engine moves the parameter to right now, in its unit (knobs only, #686): a dot on the knob. */
+    live?: number
   } = $props()
 
   const { ui } = useStores()
@@ -105,6 +108,7 @@
       {onbegin}
       {onend}
       position={positionOf(param, value)}
+      live={live === undefined ? undefined : { position: positionOf(param, live), text: formatValue(param, live) }}
       display={formatValue(param, value)}
       home={positionOf(param, param.default)}
       defaultDisplay={formatValue(param, param.default)}

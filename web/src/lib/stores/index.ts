@@ -8,6 +8,8 @@ import { getContext, setContext } from 'svelte'
 import type { Command } from '../generated/protocol'
 import type { MainViewId, PanelViewId } from '../../views/registry'
 import { AudioImport, browserAudioPicker, browserCanAsk } from '../audio/import/audio-import.svelte'
+import { downloadAudio } from '../audio/import/from-url'
+import { runHelperImport } from '../audio/import/helper-import'
 import { PeaksCache } from '../audio/peaks/peaks.svelte'
 import { AudioExport, type ExportDeps } from '../export/audio-export.svelte'
 import { browserExportDeps } from '../export/browser'
@@ -76,6 +78,13 @@ export function createStores(view: MainViewId, panel: PanelViewId, deps: Storage
     importFile: (file, onProgress, signal) => storage.importAudio(file, onProgress, signal),
     stage: (media) => dispatcher.stageMedia(media),
     run: (command) => dispatcher.run(command),
+    // An agent's file from a link (#664): fetched as the storage fetches a pack's link.
+    pageHostname: () => storageDeps.pageHostname(),
+    download: (url, name, onProgress, signal) =>
+      downloadAudio(url, name, { fetch: storageDeps.fetch, pageHostname: storageDeps.pageHostname(), onProgress, signal }),
+    // In Boost with the project's folder open in the helper (#778): the helper imports, in the storage's queue.
+    helper: () => dispatcher.helperImportPort(),
+    importWithHelper: (port, source, onProgress, signal) => storage.importWithHelper(() => runHelperImport(port, source, onProgress, signal), signal),
   })
   dispatcher.audioImport = audioImport
   const peaks = new PeaksCache({

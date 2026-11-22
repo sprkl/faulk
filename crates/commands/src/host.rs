@@ -13,7 +13,7 @@
 
 use std::collections::BTreeMap;
 
-use project::{EngineSlots, Project, SceneId, SessionState, TrackId};
+use project::{DeviceId, EngineSlots, Project, SceneId, SessionState, TrackId};
 use schemars::JsonSchema;
 use serde::Serialize;
 
@@ -173,11 +173,41 @@ pub struct ViewSlots {
     pub epoch: u16,
     pub tracks: BTreeMap<TrackId, u32>,
     pub scenes: BTreeMap<SceneId, u32>,
+    /// The engine slots of the devices, the master's included: the engine reports the live
+    /// value of a parameter a device moves by itself (the Filter's cutoff, #686) by its track
+    /// slot and its device slot.
+    pub devices: BTreeMap<DeviceId, DeviceSlotRef>,
+}
+
+/// Where a device sits in the engine.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct DeviceSlotRef {
+    /// Its track's slot; `None` for the master's chain.
+    pub track: Option<u32>,
+    /// Its place in the chain.
+    pub slot: u32,
 }
 
 impl ViewSlots {
     /// The slots of `engine`, in the stream's `epoch`.
     pub fn of(engine: &EngineSlots, epoch: u16) -> Self {
+        let track_devices = engine.track.iter().filter_map(|(id, held)| {
+            let track = engine.tracks.get(id)?;
+            Some(held.devices.iter().map(move |(slot, device)| {
+                (
+                    device.clone(),
+                    DeviceSlotRef {
+                        track: Some(track),
+                        slot,
+                    },
+                )
+            }))
+        });
+        let master = engine
+            .master_devices
+            .iter()
+            .map(|(slot, device)| (device.clone(), DeviceSlotRef { track: None, slot }));
         Self {
             epoch,
             tracks: engine
@@ -190,6 +220,7 @@ impl ViewSlots {
                 .iter()
                 .map(|(slot, id)| (id.clone(), slot))
                 .collect(),
+            devices: track_devices.flatten().chain(master).collect(),
         }
     }
 }
@@ -249,6 +280,59 @@ mod live_routing_tests {
 
     fn slot(synced: &Synced, track: &TrackId) -> u32 {
         synced.ctx.engine.tracks.get(track).expect("a slot")
+    }
+
+    fn insert(synced: &mut Synced, track: Option<&TrackId>, kind: &str) -> project::DeviceId {
+        let mut command = serde_json::json!({ "type": "device.insert", "kind": kind, "index": 0 });
+        match track {
+            Some(t) => command["track"] = serde_json::json!(t),
+            None => command["master"] = serde_json::json!(true),
+        }
+        match run(synced, command) {
+            crate::Output::Device(crate::device::Output::Insert { device }) => device,
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn the_view_names_every_device_by_its_engine_slots_the_masters_included() {
+        use super::{DeviceSlotRef, ViewSlots};
+        let mut synced = Synced::single_synth(3);
+        synced.setup().unwrap();
+        let track = TrackId::parse(crate::engine_msgs::single_synth::TRACK).unwrap();
+        let on_track = insert(&mut synced, Some(&track), "faulk.filter");
+        let on_master = insert(&mut synced, None, "faulk.filter");
+        let view = ViewSlots::of(&synced.ctx.engine, synced.epoch());
+        let t = slot(&synced, &track);
+        assert_eq!(
+            view.devices.get(&on_track),
+            Some(&DeviceSlotRef {
+                track: Some(t),
+                slot: crate::engine_msgs::MIDI_EFFECT_SLOTS + 1
+            }),
+            "after the synth, past the MIDI effects' band (#219)"
+        );
+        assert_eq!(
+            view.devices.get(&on_master),
+            Some(&DeviceSlotRef {
+                track: None,
+                slot: 0
+            })
+        );
+        assert_eq!(view.devices.len(), 3, "the synth, the two filters");
+        assert!(view.devices.values().any(|r| *r
+            == DeviceSlotRef {
+                track: Some(t),
+                slot: crate::engine_msgs::MIDI_EFFECT_SLOTS
+            }));
+        // A removed device leaves the view.
+        run(
+            &mut synced,
+            serde_json::json!({ "type": "device.remove", "device": on_track }),
+        );
+        let view = ViewSlots::of(&synced.ctx.engine, synced.epoch());
+        assert!(!view.devices.contains_key(&on_track));
+        assert_eq!(view.devices.len(), 2);
     }
 
     #[test]

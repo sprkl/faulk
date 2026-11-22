@@ -569,7 +569,19 @@ fn repeat_runs_every_case_of_the_table_shared_with_the_piano_roll() {
         let sources = case_notes(&case["notes"]);
         let others = case_notes(&case["others"]);
         let all: Vec<Note> = sources.iter().chain(&others).copied().collect();
-        let (f, state) = with_length_notes(case["clipLength"].as_i64().unwrap(), &all);
+        let (f, mut state) = with_length_notes(case["clipLength"].as_i64().unwrap(), &all);
+        if let Some(sig) = case["signature"].as_array() {
+            let part = |i: usize| sig[i].as_u64().unwrap() as u8;
+            run(
+                &Command::Transport(commands::transport::Command::SetTimeSignature {
+                    numerator: part(0),
+                    denominator: part(1),
+                }),
+                &mut state,
+                &mut context(),
+            )
+            .unwrap();
+        }
         let command = repeat(
             &f,
             sources,

@@ -7,6 +7,7 @@ import { ENTITY_KEYS, refusalOf } from './refusal'
 const ERRORS: CommandError[] = [
   { code: 'not_found', entity: 'track', id: '1' },
   { code: 'invalid', field: 'name', message: 'too long' },
+  { code: 'invalid', field: 'if_occupied', message: '1 placement(s) in the way' },
   { code: 'limit', entity: 'clips per track', max: 100000 },
   { code: 'unsupported', command: 'x' },
   { code: 'folder', error: { reason: 'not_a_project' } },
@@ -22,6 +23,11 @@ describe('refusalOf', () => {
       }
     }
     expect(new Set(ERRORS.map((e) => e.code)).size).toBe(5)
+  })
+
+  it('says a place was taken, not that a value was refused, for a command that must carve nothing (#805)', () => {
+    expect(refusalOf({ code: 'invalid', field: 'if_occupied', message: 'x' }).key).toBe('refusal.occupied')
+    expect(refusalOf({ code: 'invalid', field: 'by', message: 'x' }).key).toBe('refusal.invalid')
   })
 
   it('names what a limit counts, and falls back for an entity it does not know', () => {

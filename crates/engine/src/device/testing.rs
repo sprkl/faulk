@@ -65,6 +65,7 @@ pub mod tone {
 
 /// Descriptor of [`TestTone`].
 pub static TONE: DeviceDescriptor = DeviceDescriptor {
+    sidechain: false,
     kind: "faulk.test_tone",
     kind_id: DeviceKind(0xFFFF_0001),
     version: 1,
@@ -271,6 +272,7 @@ pub mod gain {
 
 /// Descriptor of [`TestGain`].
 pub static GAIN: DeviceDescriptor = DeviceDescriptor {
+    sidechain: false,
     kind: "faulk.test_gain",
     kind_id: DeviceKind(0xFFFF_0002),
     version: 1,
@@ -411,6 +413,223 @@ impl Device for TestGain {
     }
 }
 
+// ---------------------------------------------------------------- the level (#881)
+
+/// Parameters of [`TestLevel`].
+pub mod level {
+    use crate::msg::ParamId;
+    pub const LEVEL: ParamId = ParamId(0);
+}
+
+/// Descriptor of [`TestLevel`]: one level on a logarithmic knob, the case of a frequency or a
+/// time, for the automation of a logarithmic parameter (#881).
+pub static LEVEL: DeviceDescriptor = DeviceDescriptor {
+    sidechain: false,
+    kind: "faulk.test_level",
+    kind_id: DeviceKind(0xFFFF_0005),
+    version: 1,
+    name: "Test Level",
+    role: DeviceRole::Effect,
+    memory_bytes: size_of::<TestLevel>() as u64,
+    midi_output: None,
+    named_keys: &[],
+    params: &[ParamDescriptor {
+        id: level::LEVEL,
+        key: "level",
+        description: "Test parameter level, on a logarithmic knob, applied at its exact offset.",
+        unit: Unit::None,
+        min: 0.01,
+        max: 2.0,
+        default: 1.0,
+        scale: Scale::Log,
+        step: 0.0,
+        smoothing_seconds: 0.0,
+        values: &[],
+    }],
+};
+
+/// An audio effect that multiplies both channels by `level`, applied at its offset.
+#[derive(Clone, Debug)]
+pub struct TestLevel {
+    level: f32,
+}
+
+impl TestLevel {
+    pub fn build(_setup: &DeviceSetup) -> Result<Box<dyn Device>, MsgError> {
+        Ok(try_box(Self {
+            level: LEVEL.params[0].default as f32,
+        })?)
+    }
+
+    fn render(&mut self, io: &mut AudioIo<'_>, from: usize, to: usize) {
+        let (left, right) = (&mut io.left[from..to], &mut io.right[from..to]);
+        for (l, r) in left.iter_mut().zip(right.iter_mut()) {
+            *l = flush(sanitize_sample(*l) * self.level);
+            *r = flush(sanitize_sample(*r) * self.level);
+        }
+    }
+}
+
+impl Device for TestLevel {
+    fn descriptor(&self) -> &'static DeviceDescriptor {
+        &LEVEL
+    }
+
+    fn process(&mut self, ctx: &BlockCtx, events: &[Event], io: &mut AudioIo<'_>) {
+        let frames = block_frames(ctx, io);
+        split(
+            self,
+            frames,
+            events,
+            |d, from, to| d.render(io, from, to),
+            |d, e| {
+                if let Event::ParamValue { id, value, .. } = *e {
+                    d.set_param(id, value);
+                }
+            },
+        );
+    }
+
+    fn set_param(&mut self, id: ParamId, value: f32) {
+        let Some(desc) = LEVEL.param(id) else { return };
+        if let Some(value) = desc.sanitize(value) {
+            self.level = value;
+        }
+    }
+
+    fn reset(&mut self) {}
+}
+
+// ---------------------------------------------------------------- the delay (#749)
+
+/// Parameters of [`TestDelay`].
+pub mod delay {
+    use crate::msg::ParamId;
+    pub const FRAMES: ParamId = ParamId(0);
+}
+
+/// The longest latency of [`TestDelay`], in frames.
+pub const TEST_DELAY_MAX: u32 = 4096;
+
+/// Descriptor of [`TestDelay`].
+pub static DELAY: DeviceDescriptor = DeviceDescriptor {
+    sidechain: false,
+    kind: "faulk.test_delay",
+    kind_id: DeviceKind(0xFFFF_0004),
+    version: 1,
+    name: "Test Delay",
+    role: DeviceRole::Effect,
+    memory_bytes: size_of::<TestDelay>() as u64
+        + 2 * (TEST_DELAY_MAX as u64 + 1) * 4
+        + crate::latency::Latent::bytes_for(TEST_DELAY_MAX),
+    midi_output: None,
+    named_keys: &[],
+    params: &[ParamDescriptor {
+        id: delay::FRAMES,
+        key: "frames",
+        description: "Test parameter: the latency, in frames.",
+        unit: Unit::None,
+        min: 0.0,
+        max: TEST_DELAY_MAX as f64,
+        default: 0.0,
+        scale: Scale::Linear,
+        step: 1.0,
+        smoothing_seconds: 0.0,
+        values: &[],
+    }],
+};
+
+/// An audio effect with a latency (#749): its output is its input `frames` frames later, a
+/// change taking effect at once (a jump of its own output: the graph's compensation of the
+/// other tracks is what the tests watch). It declares the latency it applies.
+#[derive(Clone, Debug)]
+pub struct TestDelay {
+    left: Vec<f32>,
+    right: Vec<f32>,
+    pos: usize,
+    frames: u32,
+    /// Frames written since the last reset: a read further back is silence.
+    since: usize,
+}
+
+impl TestDelay {
+    pub fn build(_setup: &DeviceSetup) -> Result<Box<dyn Device>, MsgError> {
+        let len = TEST_DELAY_MAX as usize + 1;
+        let line = || -> Result<Vec<f32>, MsgError> {
+            let mut v = Vec::new();
+            v.try_reserve_exact(len)
+                .map_err(|_| MsgError::OutOfMemory { bytes: len * 4 })?;
+            v.resize(len, 0.0);
+            Ok(v)
+        };
+        Ok(try_box(TestDelay {
+            left: line()?,
+            right: line()?,
+            pos: 0,
+            frames: 0,
+            since: 0,
+        })?)
+    }
+
+    fn render(&mut self, io: &mut AudioIo<'_>, from: usize, to: usize) {
+        let len = self.left.len();
+        let d = self.frames as usize;
+        for i in from..to.min(io.left.len()).min(io.right.len()) {
+            self.left[self.pos] = sanitize_sample(io.left[i]);
+            self.right[self.pos] = sanitize_sample(io.right[i]);
+            self.since = self.since.saturating_add(1);
+            let at = (self.pos + len - d) % len;
+            let held = d < self.since;
+            io.left[i] = if held { self.left[at] } else { 0.0 };
+            io.right[i] = if held { self.right[at] } else { 0.0 };
+            self.pos = (self.pos + 1) % len;
+        }
+    }
+}
+
+impl Device for TestDelay {
+    fn descriptor(&self) -> &'static DeviceDescriptor {
+        &DELAY
+    }
+
+    fn process(&mut self, ctx: &BlockCtx, events: &[Event], io: &mut AudioIo<'_>) {
+        let frames = block_frames(ctx, io);
+        split(
+            self,
+            frames,
+            events,
+            |d, from, to| d.render(io, from, to),
+            |d, e| {
+                if let Event::ParamValue { id, value, .. } = *e {
+                    d.set_param(id, value);
+                }
+            },
+        );
+    }
+
+    fn set_param(&mut self, id: ParamId, value: f32) {
+        let Some(desc) = DELAY.param(id) else { return };
+        if let Some(value) = desc.sanitize(value)
+            && id == delay::FRAMES
+        {
+            self.frames = (value as u32).min(TEST_DELAY_MAX);
+        }
+    }
+
+    /// Constant time: a count hides the line's content.
+    fn reset(&mut self) {
+        self.since = 0;
+    }
+
+    fn latency_frames(&self) -> u32 {
+        self.frames
+    }
+
+    fn max_latency_frames(&self) -> u32 {
+        TEST_DELAY_MAX
+    }
+}
+
 // ---------------------------------------------------------------- the MIDI effect
 
 /// Parameters of [`TestTranspose`].
@@ -422,6 +641,7 @@ pub mod transpose {
 
 /// Descriptor of [`TestTranspose`].
 pub static TRANSPOSE: DeviceDescriptor = DeviceDescriptor {
+    sidechain: false,
     kind: "faulk.test_transpose",
     kind_id: DeviceKind(0xFFFF_0003),
     version: 1,
@@ -1051,6 +1271,10 @@ pub fn factory(kind: DeviceKind) -> Option<super::Factory> {
         Some(TestGain::build)
     } else if kind == TRANSPOSE.kind_id {
         Some(TestTranspose::build)
+    } else if kind == DELAY.kind_id {
+        Some(TestDelay::build)
+    } else if kind == LEVEL.kind_id {
+        Some(TestLevel::build)
     } else {
         crate::devices::factory(kind)
     }

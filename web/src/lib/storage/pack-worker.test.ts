@@ -183,6 +183,40 @@ describe('the store Worker\'s "pack" messages', () => {
     expect(Array.from(zip)).toEqual(Array.from(join(inPage)))
   })
 
+  it("answers only after the page's word on the last piece, the one that ends the zip (#737)", async () => {
+    // The length of the whole zip, from the page's own core on the same folder: the last piece is the one that reaches it.
+    const core = ProjectCore.create(module, 'empty', 1, seed)
+    let total = 0
+    await core.packExport(entries(), {
+      read: async (_path, start, end) => media().slice(start, end),
+      sink: { write: async (chunk) => void (total += chunk.length) },
+    })
+    core.free()
+    await open()
+    const id = next
+    const running = send({ op: 'pack', key: 7, entries: entries() })
+    let seen = 0
+    let bytes = 0
+    while (bytes < total) {
+      await untilChunksOrDone(id, seen + 1)
+      // Never an answer while a piece waits for the page, the last one included.
+      expect(final(id)).toBeUndefined()
+      expect(chunks()).toHaveLength(seen + 1)
+      bytes += (chunks()[seen]!.reply as { chunk: Uint8Array }).chunk.length
+      seen++
+      if (bytes === total) {
+        await new Promise((resolve) => setTimeout(resolve, 50))
+        expect(final(id)).toBeUndefined()
+      }
+      await send({ op: 'packAck', target: id })
+    }
+    await running
+    expect(bytes).toBe(total)
+    expect((final(id) as { ok: true; value: PackExport }).value).toMatchObject({ status: 'ok' })
+    // Nothing came after the answer.
+    expect(posted.at(-1)!.reply).toMatchObject({ id, ok: true })
+  })
+
   async function untilChunksOrDone(id: number, count: number) {
     for (let i = 0; i < 2000 && chunks().length < count && !final(id); i++) await new Promise((resolve) => setTimeout(resolve, 5))
   }

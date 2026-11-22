@@ -1,0 +1,2 @@
+2026-11-06
+* **Update** (#319): in Boost, once the helper has the project's folder open, the audio export is rendered by the helper and written into that folder (`exports/<name>.wav`, an existing file kept). The page still builds the job and sends it; the file is the page Worker's within `PARITY_TOLERANCE`. Storage architecture § 4 and § 5.13, the MVP plan's export and AU-7 entries and the local bridge constraints are updated.

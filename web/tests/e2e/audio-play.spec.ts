@@ -32,7 +32,8 @@ test('an imported WAV put in the grid plays when its cell is clicked, and a stop
   await run(page, { type: 'scene.create', name: 'A' })
   await page.getByTestId('panel-clips').click()
   // Web mode: no word about Boost.
-  await expect(page.getByTestId('audio-boost-silent')).toHaveCount(0)
+  await expect(page.getByTestId('audio-boost-folder')).toHaveCount(0)
+  await expect(page.getByTestId('audio-boost-show-folder')).toHaveCount(0)
   const chooser = page.waitForEvent('filechooser')
   await page.getByTestId('audio-import-button').click()
   await (await chooser).setFiles(`${FIXTURES}sine-s16.wav`)

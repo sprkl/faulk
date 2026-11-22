@@ -18,8 +18,8 @@ A profile is a starting frame, not a cage. Record in the sheet every place where
 
 1. **Frame**:
    - Read the whole profile. Its catalog fills the "Catalog of attributes" section of the sheet: copy the lines you keep, adapted to this track.
-   - Pick tempo, mode and form from its ranges, and state each choice. Where the profile gives a half-time reading, choose one reading and say which.
-   - Take two of its "moves to try". They count inside the skill's two or three arbitrary constraints, so you add at most one of your own.
+   - Pick tempo, mode and form from its ranges (the form within the rotation rule of [forms.md](../forms.md): the profile ranks the forms, it does not override the rule), and state each choice. Where the profile gives a half-time reading, choose one reading and say which.
+   - Take two of its moves: from "Moves to try", or from any other section the profile marks as moves (morzak's "Where the style is going"). They count inside the skill's two or three arbitrary constraints, so you add at most one of your own.
    - Name the profile in the brief section of the sheet.
 2. **Seed and Grow**: the harmony and rhythm lines guide the material. The track contains the profile's "signature" at least once, placed on purpose.
 3. **Arrange and Finish**: check the form against the profile's form line, and the finishing notes against its mix line. Its blind spots are already addressed by the moves.
@@ -41,4 +41,5 @@ One paragraph: the character in plain words, and what the profile was distilled 
 
 | File | Character |
 |---|---|
-| [morzak.md](morzak.md) | dark, warm, modal minor electronic music from hardware jams; low-end driven, short chord cycles under developing arpeggios and melodies, a chord that flips its third |
+| [morzak.md](morzak.md) | dark, warm, modal minor electronic music from hardware jams; low-end driven, short chord cycles under developing arpeggios and melodies, a chord that flips its third; evolving toward alternating cycles and harmony-made peaks |
+| [drifting-cycles.md](drifting-cycles.md) | melodic electronic music whose harmony travels: a new chord picture per section, bass pedals and sus chords for tension, one late lift |

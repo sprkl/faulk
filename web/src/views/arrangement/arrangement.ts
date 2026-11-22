@@ -281,6 +281,72 @@ export function trackTargets(selection: readonly Block[], rows: number, tracks: 
 }
 
 /**
+ * The shift of tracks a keyboard move ends in (#805): `rows` when every block fits there, else the next shift in the same
+ * direction where every block lands on a free place of a track of its kind, `null` when none does (the first track or the
+ * last is passed). The blocks that move do not count as in the way. It is `arrangement.move_to_track`'s `if_occupied: "skip"`
+ * seen from the page, which needs it to say which track was busy.
+ */
+export function freeRows(
+  selection: readonly Block[],
+  rows: number,
+  delta: number,
+  tracks: readonly { id: string; midi: boolean }[],
+  blocks: readonly Block[],
+): number | null {
+  if (rows === 0 || selection.length === 0) return rows
+  const moving = new Set(selection.map((b) => b.id))
+  const step = Math.sign(rows)
+  for (let k = rows; ; k += step) {
+    let fits = true
+    for (const b of selection) {
+      const target = tracks[b.row + k]
+      if (!target) return null
+      const [start, end] = [b.start + delta, b.end + delta]
+      if (target.midi === (b.audio !== null) || blocks.some((o) => o.row === b.row + k && !moving.has(o.id) && o.start < end && start < o.end)) {
+        fits = false
+        break
+      }
+    }
+    if (fits) return k
+  }
+}
+
+/**
+ * The first block (the earliest) that a copy or a move of the selection `by` ticks would land on, on the track it stays in, or
+ * `null` when it lands on nothing (#805). The blocks of the selection are not in the way: they move or are copied together.
+ * It is what `if_occupied: "refuse"` sees, so that the page can name the block that is in the way.
+ */
+export function landingOn(selection: readonly Block[], by: number, blocks: readonly Block[]): Block | null {
+  const moving = new Set(selection.map((b) => b.id))
+  let found: Block | null = null
+  for (const b of selection) {
+    for (const o of blocks) {
+      if (o.row !== b.row || moving.has(o.id) || o.start >= b.end + by || b.start + by >= o.end) continue
+      if (!found || o.start < found.start) found = o
+    }
+  }
+  return found
+}
+
+/** Whether a copy of each block, `by` ticks later on its own track, would land on a block that is not part of the copy (#805). */
+export function copyBlocked(selection: readonly Block[], by: number, blocks: readonly Block[]): boolean {
+  return landingOn(selection, by, blocks) !== null
+}
+
+/**
+ * The first block of the track that `arrangement.repeat` of `block` up to the tick `until` would cover: the copies fill the
+ * time from the end of the block to `until` (#805). Growing the end of the block to `until` (`arrangement.resize`) covers the same time (#863).
+ */
+export function repeatCovers(block: Block, until: number, blocks: readonly Block[]): Block | null {
+  let found: Block | null = null
+  for (const o of blocks) {
+    if (o.row !== block.row || o.id === block.id || o.start >= until || block.end >= o.end) continue
+    if (!found || o.start < found.start) found = o
+  }
+  return found
+}
+
+/**
  * Where an edge goes when the pointer is at `tick`, or `null` when that changes nothing. The end stays after the
  * start; the start stays before the end and, because the content must not slide, not before the first tick of the
  * clip (the offset runs out).
@@ -358,6 +424,14 @@ export function passesOf(block: Block, max = 256, after = block.start): { at: nu
     from = start
   }
   return out
+}
+
+/**
+ * Whether the clip follows the length of its placement (#898): a MIDI clip with no note and no loop, played from its
+ * start by this placement alone (no other placement, no launch slot). The core decides the same way in `arrangement.resize`.
+ */
+export function followsPlacement(block: Block): boolean {
+  return !block.audio && block.notes.length === 0 && block.looping === null && block.uses === 1 && block.offset === 0
 }
 
 /** How many passes a block plays (the first one counted even when partial), without walking them. */

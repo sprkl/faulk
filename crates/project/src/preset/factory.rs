@@ -74,12 +74,132 @@ const FILES: &[(&str, &str)] = &[
         include_str!("factory/faulk.filter/thin-highpass.json"),
     ),
     (
+        "faulk.filter/quarter-wobble",
+        include_str!("factory/faulk.filter/quarter-wobble.json"),
+    ),
+    (
+        "faulk.filter/slow-sweep",
+        include_str!("factory/faulk.filter/slow-sweep.json"),
+    ),
+    (
+        "faulk.filter/talking-filter",
+        include_str!("factory/faulk.filter/talking-filter.json"),
+    ),
+    (
+        "faulk.filter/random-steps",
+        include_str!("factory/faulk.filter/random-steps.json"),
+    ),
+    (
+        "faulk.ceiling/safe-master",
+        include_str!("factory/faulk.ceiling/safe-master.json"),
+    ),
+    (
+        "faulk.ceiling/loud-master",
+        include_str!("factory/faulk.ceiling/loud-master.json"),
+    ),
+    (
+        "faulk.stack/major-triad",
+        include_str!("factory/faulk.stack/major-triad.json"),
+    ),
+    (
+        "faulk.stack/minor-triad",
+        include_str!("factory/faulk.stack/minor-triad.json"),
+    ),
+    (
+        "faulk.stack/fifth-and-octave",
+        include_str!("factory/faulk.stack/fifth-and-octave.json"),
+    ),
+    (
+        "faulk.stack/scale-seventh",
+        include_str!("factory/faulk.stack/scale-seventh.json"),
+    ),
+    (
+        "faulk.trim/tight-pluck",
+        include_str!("factory/faulk.trim/tight-pluck.json"),
+    ),
+    (
+        "faulk.trim/held-bar",
+        include_str!("factory/faulk.trim/held-bar.json"),
+    ),
+    (
+        "faulk.lattice/black-keys",
+        include_str!("factory/faulk.lattice/black-keys.json"),
+    ),
+    (
+        "faulk.lattice/blues-in-c",
+        include_str!("factory/faulk.lattice/blues-in-c.json"),
+    ),
+    (
+        "faulk.lattice/root-and-fifth",
+        include_str!("factory/faulk.lattice/root-and-fifth.json"),
+    ),
+    (
+        "faulk.scatter/octave-leaps",
+        include_str!("factory/faulk.scatter/octave-leaps.json"),
+    ),
+    (
+        "faulk.scatter/scale-wander",
+        include_str!("factory/faulk.scatter/scale-wander.json"),
+    ),
+    (
+        "faulk.scatter/rising-thirds",
+        include_str!("factory/faulk.scatter/rising-thirds.json"),
+    ),
+    (
+        "faulk.hiccup/half-bar-stutter",
+        include_str!("factory/faulk.hiccup/half-bar-stutter.json"),
+    ),
+    (
+        "faulk.hiccup/drum-roll",
+        include_str!("factory/faulk.hiccup/drum-roll.json"),
+    ),
+    (
+        "faulk.hiccup/tape-scatter",
+        include_str!("factory/faulk.hiccup/tape-scatter.json"),
+    ),
+    (
+        "faulk.bloom/soft-chorus",
+        include_str!("factory/faulk.bloom/soft-chorus.json"),
+    ),
+    (
+        "faulk.bloom/wide-ensemble",
+        include_str!("factory/faulk.bloom/wide-ensemble.json"),
+    ),
+    (
+        "faulk.bloom/vibrato",
+        include_str!("factory/faulk.bloom/vibrato.json"),
+    ),
+    (
         "faulk.contour/vocal-presence",
         include_str!("factory/faulk.contour/vocal-presence.json"),
     ),
     (
         "faulk.contour/low-cut-tidy",
         include_str!("factory/faulk.contour/low-cut-tidy.json"),
+    ),
+    (
+        "faulk.ripple/slow-phaser",
+        include_str!("factory/faulk.ripple/slow-phaser.json"),
+    ),
+    (
+        "faulk.ripple/synced-flanger",
+        include_str!("factory/faulk.ripple/synced-flanger.json"),
+    ),
+    (
+        "faulk.ripple/envelope-phaser",
+        include_str!("factory/faulk.ripple/envelope-phaser.json"),
+    ),
+    (
+        "faulk.swing/triplet-feel",
+        include_str!("factory/faulk.swing/triplet-feel.json"),
+    ),
+    (
+        "faulk.swing/eighth-shuffle",
+        include_str!("factory/faulk.swing/eighth-shuffle.json"),
+    ),
+    (
+        "faulk.swing/loose-hats",
+        include_str!("factory/faulk.swing/loose-hats.json"),
     ),
 ];
 

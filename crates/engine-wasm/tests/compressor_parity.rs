@@ -152,6 +152,40 @@ fn scenario() -> Vec<Step> {
         &mut steps,
     );
     steps.push(Step::Render(&[2_048; 14]));
+    // #157's parameters at musical values: a soft knee, RMS detection, the sidechain
+    // high-pass, the auto release, a look-ahead (a change while sounding: the fade, the
+    // silence, the fade in) and parallel compression; then a peak/manual section with a hard
+    // knee and the look-ahead taken back to 0.
+    submit(
+        &[
+            set(comp::THRESHOLD, -30.0),
+            set(comp::RATIO, 6.0),
+            set(comp::KNEE, 12.0),
+            set(comp::DETECTION, 1.0),
+            set(comp::SIDECHAIN_HPF, 1.0),
+            set(comp::SIDECHAIN_FREQ, 180.0),
+            set(comp::RELEASE_MODE, 1.0),
+            set(comp::LOOKAHEAD, 0.005),
+            set(comp::MIX, 0.6),
+            set(comp::MAKEUP, 6.0),
+            note(48, 127),
+        ],
+        &mut steps,
+    );
+    steps.push(Step::Render(&[2_048; 12]));
+    steps.push(Step::Render(MIXED));
+    submit(
+        &[
+            set(comp::KNEE, 0.0),
+            set(comp::DETECTION, 0.0),
+            set(comp::RELEASE_MODE, 0.0),
+            set(comp::MIX, 0.25),
+            set(comp::LOOKAHEAD, 0.0),
+            note(72, 120),
+        ],
+        &mut steps,
+    );
+    steps.push(Step::Render(&[2_048; 8]));
     // Switched off and on: the gain starts open again.
     submit(&[enable(false)], &mut steps);
     steps.push(Step::Render(MIXED));

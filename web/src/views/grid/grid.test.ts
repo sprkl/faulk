@@ -24,7 +24,7 @@ const audio = (scene: string): Clip =>
     },
   }) as unknown as Clip
 
-const slots = { epoch: 3, tracks: { t1: 0, t2: 1 }, scenes: { s1: 0, s2: 1, s3: 2 } }
+const slots = { epoch: 3, tracks: { t1: 0, t2: 1 }, scenes: { s1: 0, s2: 1, s3: 2 }, devices: {} }
 
 function view(): ProjectView {
   return {

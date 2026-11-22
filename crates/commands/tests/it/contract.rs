@@ -9,7 +9,7 @@ use commands::export::{ExportBitDepth, ExportRegion};
 use commands::testing::{Fixture, check, check_refusal, context, fixture, state};
 use commands::{
     Author, Command, CommandError, Kind, Meta, Output, ProjectEvent, State, UndoKind, catalog,
-    device, history, launch, live, midi, mixer, project, view,
+    clip, device, history, launch, live, midi, mixer, project, view,
 };
 
 use crate::arrangement_examples;
@@ -17,6 +17,7 @@ use crate::automation_examples;
 use crate::clip_examples;
 use crate::device_examples;
 use crate::grid_examples;
+use crate::key_change_examples;
 use crate::marker_examples;
 use crate::preset_examples;
 use crate::query_examples;
@@ -83,6 +84,7 @@ fn examples() -> Vec<(Command, State)> {
         on(Command::Project(project::Command::KeepMine {})),
         on(Command::Project(project::Command::LoadFolderVersion {})),
         on(Command::Project(project::Command::AllowAccess {})),
+        on(Command::Project(project::Command::ChooseHelperFolder {})),
         (
             Command::Project(project::Command::ExportAudio {
                 region: None,
@@ -118,6 +120,10 @@ fn examples() -> Vec<(Command, State)> {
             param: "attack".into(),
             value: 0.25,
         })),
+        {
+            let s = crate::sidechain::fx();
+            (crate::sidechain::set(&s.comp, Some(&s.kick)), s.state)
+        },
         on(Command::Mixer(mixer::Command::Levels {})),
         (
             Command::Project(project::Command::AnalyzeRender {
@@ -200,6 +206,12 @@ fn examples() -> Vec<(Command, State)> {
             s.history.open_group = Some((group, Author::User));
             s
         }),
+        (Command::History(history::Command::AbortGroup {}), {
+            let mut s = f.state.clone();
+            let group = s.history.new_group();
+            s.history.open_group = Some((group, Author::User));
+            s
+        }),
         on(Command::View(view::Command::SelectTrack {
             track: Some(f.track.clone()),
         })),
@@ -220,6 +232,7 @@ fn examples() -> Vec<(Command, State)> {
     .chain(query_examples::examples())
     .chain(record_examples::examples())
     .chain(marker_examples::examples())
+    .chain(key_change_examples::examples())
     .chain(preset_examples::examples())
     .collect()
 }
@@ -968,11 +981,38 @@ fn stored_project_commands_name_something_the_page_can_look_up() {
 
 #[test]
 fn open_url_takes_https_or_this_computer_and_refuses_everything_else() {
-    let open = |url: &str| {
-        Command::Project(project::Command::OpenUrl {
-            url: url.to_owned(),
-        })
+    // The two commands that hand the page a link to download check it the same way (#664).
+    let audio = crate::clip_examples::fx();
+    let pack = |url: &str| {
+        (
+            Command::Project(project::Command::OpenUrl {
+                url: url.to_owned(),
+            }),
+            state(),
+        )
     };
+    let clip = |url: &str| {
+        (
+            Command::Clip(clip::Command::ImportAudioUrl {
+                track: audio.audio_track.clone(),
+                url: url.to_owned(),
+            }),
+            audio.state.clone(),
+        )
+    };
+    let makers: [&LinkCall<'_>; 2] = [&pack, &clip];
+    for open in makers {
+        links_are_checked(open);
+    }
+}
+
+/// A command that hands the page a link, with the state it runs from.
+type LinkCall<'a> = dyn Fn(&str) -> (Command, State) + 'a;
+
+fn links_are_checked(open: &LinkCall<'_>) {
+    let check = |(command, state): (Command, State)| check(&command, &state, &context());
+    let check_refusal =
+        |(command, state): (Command, State)| check_refusal(&command, &state, &context());
     for url in [
         "https://cdn.jsdelivr.net/gh/sprkl/faulk-journey@main/tracks/a/project.faulkpack",
         "HTTPS://Example.org/song.faulkpack?v=2#top",
@@ -984,7 +1024,7 @@ fn open_url_takes_https_or_this_computer_and_refuses_everything_else() {
         "http://[::1]:1/x",
         "http://localhost",
     ] {
-        check(&open(url), &state(), &context()).unwrap_or_else(|e| panic!("{url}: {e}"));
+        check(open(url)).unwrap_or_else(|e| panic!("{url}: {e}"));
     }
     let long = format!("https://example.org/{}", "a".repeat(2048));
     for url in [
@@ -1013,8 +1053,7 @@ fn open_url_takes_https_or_this_computer_and_refuses_everything_else() {
         " https://example.org/song.faulkpack",
         "https://example.org/song.faulkpack\n",
     ] {
-        let err = check_refusal(&open(url), &state(), &context())
-            .unwrap_or_else(|e| panic!("{url:?}: {e}"));
+        let err = check_refusal(open(url)).unwrap_or_else(|e| panic!("{url:?}: {e}"));
         assert!(
             matches!(err, CommandError::Invalid { ref field, .. } if field == "url"),
             "{url:?}: {err}"
@@ -1023,7 +1062,7 @@ fn open_url_takes_https_or_this_computer_and_refuses_everything_else() {
     // The longest link accepted passes.
     let longest = format!("https://example.org/{}", "a".repeat(2048 - 20));
     assert_eq!(longest.chars().count(), 2048);
-    check(&open(&longest), &state(), &context()).unwrap();
+    check(open(&longest)).unwrap();
 }
 
 #[test]

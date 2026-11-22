@@ -19,11 +19,17 @@ import { history } from './history'
 import { controls } from './controls'
 import { devices } from './devices'
 import { drums } from './drums'
+import { bloom } from './bloom'
 import { compressor } from './compressor'
+import { ceiling } from './ceiling'
 import { contour } from './contour'
 import { agentConfirm } from './confirm'
 import { echo } from './echo'
 import { filter } from './filter'
+import { stack } from './stack'
+import { lattice } from './lattice'
+import { scatter } from './scatter'
+import { swing } from './swing'
 import { reverb } from './reverb'
 import { keys } from './keys'
 import { layout } from './layout'
@@ -32,6 +38,9 @@ import { midi } from './midi'
 import { mixer } from './mixer'
 import { pianoRoll } from './piano-roll'
 import { presets } from './presets'
+import { palette } from './palette'
+import { paletteCommands } from './palette-commands'
+import { paletteFields } from './palette-fields'
 import { project } from './project'
 import { refusal } from './refusal'
 import { scale } from './scale'
@@ -40,6 +49,9 @@ import { shortcuts } from './shortcuts'
 import { synth } from './synth'
 import { tracks } from './tracks'
 import { transport } from './transport'
+import { trim } from './trim'
+import { hiccup } from './hiccup'
+import { ripple } from './ripple'
 
 export { DEVICE_NAME_KEYS } from './synth'
 
@@ -47,6 +59,9 @@ export { DEVICE_NAME_KEYS } from './synth'
 export const features = {
   shell,
   shortcuts,
+  palette,
+  paletteCommands,
+  paletteFields,
   layout,
   tracks,
   browser,
@@ -60,8 +75,17 @@ export const features = {
   echo,
   reverb,
   filter,
+  stack,
+  lattice,
+  scatter,
+  swing,
   compressor,
+  ceiling,
+  trim,
+  hiccup,
+  bloom,
   contour,
+  ripple,
   devices,
   presets,
   keys,

@@ -1,0 +1,2 @@
+2026-11-05
+* **Update** (#747): `specs/03-enregistrement-midi.md` (implementation state) states what `record.commit_take` does when the next placement of the arrangement leaves no room for the clip moved onto the bar (#732): the snap is not made, the clip starts on the bar before and every note keeps its heard place; a clip without length is never created, a typed error refuses the take otherwise.

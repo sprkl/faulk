@@ -103,6 +103,10 @@ describe('parseParamEntry (#410)', () => {
     // The readout does not enter the reading: the same text gives the same value at 52 Hz and at 5 kHz.
     expect(formatValue(hertz, 5000)).toBe('5.00 kHz')
     expect(formatValue(hertz, 52)).toBe('52 Hz')
+    // A modulation rate below 10 Hz keeps its decimals (#696).
+    expect(formatValue(hertz, 0.8)).toBe('0.8 Hz')
+    expect(formatValue(hertz, 0.05)).toBe('0.05 Hz')
+    expect(formatValue(hertz, 5.5)).toBe('5.5 Hz')
     expect(parseParamEntry(hertz, '450')).toEqual({ value: 450 })
     expect(parseParamEntry(hertz, '450,5')).toEqual({ value: 450.5 })
     expect(parseParamEntry(seconds, '450')).toEqual({ value: 0.45 })
@@ -179,5 +183,34 @@ describe('parsePan', () => {
   })
   it('refuses a foreign unit and text', () => {
     for (const bad of ['', 'left', '3 ms', 'L', 'Lx']) expect(parsePan(bad), bad).toBeUndefined()
+  })
+})
+
+describe('degrees and octaves (#686)', () => {
+  const degrees = param({ unit: 'degrees', min: 0, max: 360 })
+  const depth = param({ unit: 'octaves', min: 0, max: 5 })
+  const amount = param({ unit: 'octaves', min: -5, max: 5 })
+  it('shows them and takes back what it shows, with or without the unit', () => {
+    expect(formatValue(degrees, 90)).toBe('90°')
+    expect(formatValue(depth, 1.5)).toBe('1.5 oct')
+    expect(formatValue(amount, 3)).toBe('+3 oct')
+    expect(formatValue(amount, -2.25)).toBe('-2.25 oct')
+    const pairs: [ParamDescriptor, number][] = [
+      [degrees, 90],
+      [depth, 1.5],
+      [amount, 3],
+      [amount, -2.25],
+    ]
+    for (const [p, v] of pairs) expect(parseParam(p, formatValue(p, v))).toBe(v)
+    expect(parseParam(degrees, '180 deg')).toBe(180)
+    expect(parseParam(degrees, '45')).toBe(45)
+    expect(parseParam(depth, '2')).toBe(2)
+    expect(baseUnit(degrees)).toBe('°')
+    expect(baseUnit(depth)).toBe('oct')
+  })
+  it('refuses a foreign unit and keeps to the bounds', () => {
+    expect(parseParam(degrees, '3 ms')).toBeNull()
+    expect(parseParam(depth, '2 st')).toBeNull()
+    expect(parseParamEntry(depth, '9 oct')).toEqual({ value: 5, limit: 5 })
   })
 })

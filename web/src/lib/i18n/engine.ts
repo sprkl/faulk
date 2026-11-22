@@ -44,6 +44,14 @@ export const engine = defineFeature(
     'engine.silencedNone': 'Nothing silenced',
     'engine.silencedHint':
       'A device produced samples that are not numbers (NaN or infinite). The output turned them to silence instead of sending them to your speakers.',
+    'engine.compensationLabel': 'Compensation',
+    'engine.compensationValue': 'Devices add {ms} ms ({n} samples), compensated: everything stays in time',
+    'engine.compensationFrames': 'Devices add {n} samples, compensated: everything stays in time',
+    'engine.compensationCapped': 'Devices add {ms} ms ({n} samples), more than Faulk compensates: some tracks are no longer in time',
+    'engine.compensationCappedFrames': 'Devices add {n} samples, more than Faulk compensates: some tracks are no longer in time',
+    'engine.compensationNone': 'No device adds latency',
+    'engine.compensationHint':
+      'A look-ahead effect such as Ceiling delays its sound. Faulk delays what plays beside it (the other tracks, the metronome) by the same amount so that everything stays in time, and moves recorded takes earlier by it.',
     'engine.durationUnderMs': 'under 1 ms',
     'engine.durationMs': '{n} ms',
     'engine.durationS': '{n} s',
@@ -53,6 +61,9 @@ export const engine = defineFeature(
     'meter.master': 'Master level',
     'audio.error': 'The helper’s audio output stopped: Faulk plays in the browser until it comes back.',
     'engine.boostWaiting': 'Boost waits for an audio output',
+    'engine.noOutput': 'No audio output: playback cannot advance',
+    'engine.notResponding': 'The engine stopped responding',
+    'engine.restart': 'Restart',
     'engine.streamError': 'The audio engine stopped taking changes. Click "Start audio" to continue.',
   },
   {
@@ -97,6 +108,14 @@ export const engine = defineFeature(
     'engine.silencedNone': 'Rien de coupé',
     'engine.silencedHint':
       'Un appareil a produit des échantillons qui ne sont pas des nombres (NaN ou infinis). La sortie les a remplacés par du silence au lieu de les envoyer à tes enceintes.',
+    'engine.compensationLabel': 'Compensation',
+    'engine.compensationValue': 'Les appareils ajoutent {ms} ms ({n} échantillons), compensés : tout reste en place',
+    'engine.compensationFrames': 'Les appareils ajoutent {n} échantillons, compensés : tout reste en place',
+    'engine.compensationCapped': 'Les appareils ajoutent {ms} ms ({n} échantillons), plus que Faulk ne compense : certaines pistes ne sont plus en place',
+    'engine.compensationCappedFrames': 'Les appareils ajoutent {n} échantillons, plus que Faulk ne compense : certaines pistes ne sont plus en place',
+    'engine.compensationNone': 'Aucun appareil n’ajoute de latence',
+    'engine.compensationHint':
+      'Un effet qui anticipe, comme Ceiling, retarde son son. Faulk retarde d’autant ce qui joue à côté (les autres pistes, le métronome) pour que tout reste en place, et avance d’autant les prises enregistrées.',
     'engine.durationUnderMs': 'moins d’1 ms',
     'engine.durationMs': '{n} ms',
     'engine.durationS': '{n} s',
@@ -106,6 +125,9 @@ export const engine = defineFeature(
     'meter.master': 'Niveau du master',
     'audio.error': 'La sortie audio du helper s’est arrêtée : Faulk joue dans le navigateur jusqu’à son retour.',
     'engine.boostWaiting': 'Boost attend une sortie audio',
+    'engine.noOutput': 'Aucune sortie audio : la lecture ne peut pas avancer',
+    'engine.notResponding': 'Le moteur ne répond plus',
+    'engine.restart': 'Relancer',
     'engine.streamError': 'Le moteur audio n’accepte plus les changements. Clique sur « Démarrer l’audio » pour continuer.',
   },
 )

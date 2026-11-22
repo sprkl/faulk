@@ -5,6 +5,18 @@
   "name": "Warm Lowpass",
   "params": {
     "cutoff": 1200.0,
+    "drive": 0.0,
+    "env_amount": 0.0,
+    "env_attack": 0.01,
+    "env_release": 0.15,
+    "lfo_depth": 0.0,
+    "lfo_division": 6.0,
+    "lfo_phase": 0.0,
+    "lfo_rate": 1.0,
+    "lfo_restart": 1.0,
+    "lfo_shape": 1.0,
+    "lfo_stereo": 0.0,
+    "lfo_sync": 1.0,
     "mix": 1.0,
     "mode": 0.0,
     "resonance": 0.25

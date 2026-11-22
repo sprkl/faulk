@@ -73,25 +73,37 @@ domain! {
 
     /// Delete a track with its devices, clips, placements and automation. The selection,
     /// the solo, the arming and the monitoring of the track are cleared (session state,
-    /// not restored by undo: an undone delete brings the track back unarmed). Undo:
-    /// `track.restore` brings the whole track back with its identifiers and position.
+    /// not restored by undo: an undone delete brings the track back unarmed). The devices of
+    /// other tracks whose detection listened to it (`device.set_sidechain`) go back to their
+    /// own track, listed in `sidechains`. Undo: `track.restore` brings the whole track back
+    /// with its identifiers and position, and those devices listening to it again.
     "track.delete" (kind = "edit", undo = "inverse", destructive = false)
     Delete { track: TrackId } => {
         /// How many devices were removed with the track.
         devices: u32,
         /// How many clips were removed with the track.
         clips: u32,
+        /// The devices of other tracks that listened to it and now listen to their own track.
+        sidechains: Vec<DeviceId>,
     };
 
     /// Bring a deleted track back with its identifier, as `track.delete` removed it: the
     /// inverse of a delete. `snapshot` is the whole track: its order key, mixer,
-    /// devices, clips, placements and automation. Refused when the track's identifier or
+    /// devices (a built-in device lacking parameters its type declares gets them at their
+    /// defaults), clips, placements and automation. Refused when the track's identifier or
     /// any identifier inside it is already in use, at the safety limit of tracks, or when
-    /// the snapshot is not a valid track of the project. Undo: `track.delete`.
+    /// the snapshot is not a valid track of the project. `listeners` are devices of other
+    /// tracks that listen to it again once it is back (what `track.delete` set back to their
+    /// own track; absent: none): each must exist on another track and listen to its own, and
+    /// the project stay valid (no loop, the safety limit of sources), or nothing changes.
+    /// Undo: `track.delete`.
     "track.restore" (kind = "edit", undo = "inverse", destructive = false)
     Restore {
         track: TrackId,
         snapshot: Track,
+        /// The devices that listen to the track again.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        listeners: Vec<DeviceId>,
     } => {};
 
     /// Rename a track. The name is trimmed, at most 200 characters; an empty name clears
@@ -175,7 +187,8 @@ domain! {
     /// `snapshot` under the identifier `device`. Refused when `device` is already in use,
     /// when `current` is not the track's instrument, or when the snapshot is not an
     /// instrument that fits the track (a built-in device must be one of the registry; a
-    /// module device is taken as it is). The lanes that target `current` are removed with
+    /// module device is taken as it is; one lacking parameters its type declares gets them
+    /// at their defaults). The lanes that target `current` are removed with
     /// it; `lanes` (absent: none) are the lanes that targeted the instrument put back, as
     /// `track.set_instrument` took them out: each must target the restored instrument and
     /// a parameter it has, under an identifier not in use. Undo: the same swap the other
@@ -324,7 +337,11 @@ pub fn apply(command: &Command, state: &mut State, ctx: &mut Context) -> Result<
             *color,
         ),
         Command::Delete { track } => delete(state, track),
-        Command::Restore { track, snapshot } => restore(state, track, snapshot),
+        Command::Restore {
+            track,
+            snapshot,
+            listeners,
+        } => restore(state, track, snapshot, listeners),
         Command::Rename { track, name } => rename(state, track, name),
         Command::SetColor { track, color } => set_color(state, track, *color),
         Command::SetHeight { track, height } => set_height(state, track, *height),
@@ -481,6 +498,7 @@ fn clip_player() -> Device {
         params: BTreeMap::new(),
         state: None,
         preset: None,
+        sidechain: None,
     }
 }
 
@@ -565,21 +583,40 @@ fn delete(state: &mut State, track_id: &TrackId) -> Result<Out, CommandError> {
             monitor: false,
         });
     }
+    // The devices that listened to it listen to their own track (#952); undo gives it back.
+    let listeners = project::sidechain::listeners_of(&state.project, track_id);
+    for (_, device) in &listeners {
+        if let Some(d) = state.project.device_mut(device) {
+            d.sidechain = None;
+        }
+        events.push(ProjectEvent::DeviceSidechainChanged {
+            device: device.clone(),
+            source: None,
+        });
+    }
+    let listeners: Vec<DeviceId> = listeners.into_iter().map(|(_, d)| d).collect();
     Ok(Outcome {
         output: Output::Delete {
             devices: u32::try_from(track.devices.len()).unwrap_or(u32::MAX),
             clips: u32::try_from(track.clips.len()).unwrap_or(u32::MAX),
+            sidechains: listeners.clone(),
         },
         undo: Undo::Inverse(Box::new(Command::Restore {
             track: track_id.clone(),
             snapshot: track,
+            listeners,
         })),
         events,
         control: vec![],
     })
 }
 
-fn restore(state: &mut State, track_id: &TrackId, snap: &Track) -> Result<Out, CommandError> {
+fn restore(
+    state: &mut State,
+    track_id: &TrackId,
+    snap: &Track,
+    listeners: &[DeviceId],
+) -> Result<Out, CommandError> {
     if state.project.contains_id(&track_id.0) {
         return Err(invalid(
             "track",
@@ -588,23 +625,72 @@ fn restore(state: &mut State, track_id: &TrackId, snap: &Track) -> Result<Out, C
     }
     check_room(state)?;
     check_devices(snap)?;
-    state.project.tracks.insert(track_id.clone(), snap.clone());
+    // A snapshot from before a kind gained parameters comes in complete (#754).
+    let mut track = snap.clone();
+    for device in track.devices.values_mut() {
+        crate::device::fill_missing_params(crate::device::registry(), device);
+    }
+    // The listeners are devices of other tracks that listen to their own (#952).
+    for device in listeners {
+        let listens_alone = state
+            .project
+            .tracks
+            .values()
+            .find_map(|t| t.devices.get(device))
+            .map(|d| d.sidechain.is_none());
+        match listens_alone {
+            Some(true) => {}
+            Some(false) => {
+                return Err(invalid(
+                    "listeners",
+                    format!("the device {device} listens to another track already"),
+                ));
+            }
+            None => {
+                return Err(CommandError::NotFound {
+                    entity: "device".into(),
+                    id: device.to_string(),
+                });
+            }
+        }
+    }
+    state.project.tracks.insert(track_id.clone(), track);
+    for device in listeners {
+        if let Some(d) = state.project.device_mut(device) {
+            d.sidechain = Some(track_id.clone());
+        }
+    }
     // The snapshot is data from outside: the whole project must stay valid with it
-    // (identifiers unique across the project, limits, device chain, clip kinds). A
-    // refusal takes the track back out, so the state is untouched.
+    // (identifiers unique across the project, limits, device chain, clip kinds, the
+    // detection sources). A refusal takes the track back out and the listeners back to
+    // their own track, so the state is untouched.
     if let Err(violations) = state.project.validate() {
         state.project.tracks.remove(track_id);
+        for device in listeners {
+            if let Some(d) = state.project.device_mut(device) {
+                d.sidechain = None;
+            }
+        }
         let first = violations
             .first()
             .map_or_else(String::new, ToString::to_string);
         return Err(invalid("snapshot", first));
     }
+    let mut events = vec![created(track_id)];
+    events.extend(
+        listeners
+            .iter()
+            .map(|device| ProjectEvent::DeviceSidechainChanged {
+                device: device.clone(),
+                source: Some(track_id.clone()),
+            }),
+    );
     Ok(Outcome {
         output: Output::Restore {},
         undo: Undo::Inverse(Box::new(Command::Delete {
             track: track_id.clone(),
         })),
-        events: vec![created(track_id)],
+        events,
         control: vec![],
     })
 }
@@ -740,7 +826,11 @@ fn restore_instrument(
     let kept = track.automation.clone();
     let taken = take_lanes(track, current);
     track.devices.remove(current);
-    track.devices.insert(device_id.clone(), snapshot.clone());
+    // A snapshot from before the kind gained parameters comes in complete (#754).
+    let mut incoming = snapshot.clone();
+    crate::device::fill_missing_params(crate::device::registry(), &mut incoming);
+    let incoming_for_lanes = incoming.clone();
+    track.devices.insert(device_id.clone(), incoming);
     let put_back = |state: &mut State| {
         if let Some(track) = state.project.tracks.get_mut(track_id) {
             track.devices.remove(device_id);
@@ -754,7 +844,7 @@ fn restore_instrument(
         state,
         &crate::device::Place::Track(track_id.clone()),
         device_id,
-        snapshot,
+        &incoming_for_lanes,
         lanes,
     ) {
         put_back(state);
@@ -1322,6 +1412,7 @@ mod tests {
     #[test]
     fn a_device_that_is_not_an_instrument_cannot_be_a_tracks_instrument() {
         static EFFECT: DeviceDescriptor = DeviceDescriptor {
+            sidechain: false,
             kind: "faulk.test_effect",
             kind_id: DeviceKind(900),
             version: 1,

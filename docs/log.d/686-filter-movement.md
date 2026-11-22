@@ -1,0 +1,2 @@
+2026-11-04
+* **Update** (#686): the Filter moves by itself. `specs/02-decoupage-mvp.md` (DV-2) records the notch mode, the drive, the LFO on the cutoff (free or synced to the transport's position, six shapes, stereo phase) and the envelope follower, their combination with an automation lane (the lane moves the centre), the effective cutoff fed back to the page (report version 10, device readouts; version 8 on its branch, renumbered when the batch of 2026-11-07 merged it with #749), the new contract units (degrees, octaves), four movement presets and the measured cost.
