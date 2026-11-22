@@ -393,8 +393,6 @@ const KNOWN_ALIKE: &[(&str, &str)] = &[
     ("faulk.bloom/vibrato", "the source"),
 ];
 
-const COMPRESSOR: &str = "faulk.compressor";
-
 /// A compressor is measured against its source on its crest factor (peak over RMS), not on the
 /// spectrum: a glue compressor must stay discreet in spectrum, and judged by the spectral
 /// distance it would pass by merely turning the mix down. It must take at least this much off
@@ -496,8 +494,8 @@ fn every_factory_preset_loads_while_playing_and_sounds_unlike_its_source_and_its
         let grid = spectrogram(&with_preset);
         let mut line = format!("{}: peak {:.3}", f.id, with_preset.peak());
         let siblings = heard.entry(kind.to_owned()).or_default();
-        // A compressor is judged on its crest factor, not on its spectrum (see `crest_db`).
-        let against_source = kind != COMPRESSOR;
+        // A level-matched compressor is judged on its crest factor, not on its spectrum (see `crest_db`).
+        let against_source = !LEVEL_MATCHED.contains(&f.id);
         let others = refs
             .iter()
             .filter(|_| against_source)
