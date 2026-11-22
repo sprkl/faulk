@@ -201,6 +201,18 @@ const FILES: &[(&str, &str)] = &[
         "faulk.swing/loose-hats",
         include_str!("factory/faulk.swing/loose-hats.json"),
     ),
+    (
+        "faulk.cascade/climbing-sixteenths",
+        include_str!("factory/faulk.cascade/climbing-sixteenths.json"),
+    ),
+    (
+        "faulk.cascade/triplet-rain",
+        include_str!("factory/faulk.cascade/triplet-rain.json"),
+    ),
+    (
+        "faulk.cascade/scattered-sparks",
+        include_str!("factory/faulk.cascade/scattered-sparks.json"),
+    ),
 ];
 
 /// The raw files, for the tests that hold them to the canonical format.

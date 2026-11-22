@@ -408,6 +408,12 @@ fn every_swing_parameter_is_set_and_undone_through_device_set_param() {
     every_parameter_is_set_and_undone(&engine::devices::swing::DESCRIPTOR);
 }
 
+/// #166: the same for Cascade.
+#[test]
+fn every_cascade_parameter_is_set_and_undone_through_device_set_param() {
+    every_parameter_is_set_and_undone(&engine::devices::cascade::DESCRIPTOR);
+}
+
 /// #692: the same for Lattice.
 #[test]
 fn every_lattice_parameter_is_set_and_undone_through_device_set_param() {
