@@ -22,7 +22,7 @@ const LABELS = {
   fr: {
     order: 'Ordre',
     rate: 'Division',
-    feel: 'Aspect',
+    feel: 'Type',
     octaves: 'Octaves',
     repeats: 'Répétitions',
     gate: 'Durée',

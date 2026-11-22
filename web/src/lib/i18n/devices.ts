@@ -478,7 +478,7 @@ export const devices = defineFeature(
     'cascade.order.hint':
       'Comment les notes tenues sont parcourues : en montant, en descendant, en montant puis en descendant, en descendant puis en montant, dans l’ordre où elles ont été jouées, au hasard (un tirage reproductible, fixé par la graine) ou toutes ensemble en accord à chaque pas.',
     'cascade.rate.hint':
-      'La valeur de note d’un pas, de la ronde à la soixante-quatrième de ronde, sur la grille du transport. Combinez-la avec l’aspect pour des pas pointés ou en triolet.',
+      'La valeur de note d’un pas, de la ronde à la soixante-quatrième de ronde, sur la grille du transport. Combinez-la avec le type pour des pas pointés ou en triolet.',
     'cascade.feel.hint': 'Si un pas a sa valeur de note simple, pointée (une fois et demie plus longue) ou en triolet (aux deux tiers de sa longueur).',
     'cascade.octaves.hint':
       'Sur combien d’octaves les notes tenues sont étalées, de 1 (telles que jouées) à 4 : le motif parcourt les notes puis les mêmes notes une octave plus haut.',
