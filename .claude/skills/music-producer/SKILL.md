@@ -55,7 +55,7 @@ Done when: the arrangement block covers every bar from 1 to the end with no gaps
 
 ### 5. Finish
 
-Render the MIDI file (the automation lanes go out as control changes on their parts' channels), run through the **good enough** list in [arrangement.md](references/arrangement.md), and stop. Write the **finishing notes**: what the sounds should become now that the notes exist (presets as starting points, the few parameters to bend, where humanising drift and noise belong), what is deliberately left to the human ear, and what a second version could try. Place every role in the mix by [mix.md](references/mix.md): the levels first, the lead set last so that it blends into the track rather than sits on top of it, then one `Mix` line per role (level, pan, depth plane, width, frequency slot), the mono check and, once the track is rendered, the lead check.
+Render the MIDI file (the automation lanes go out as control changes on their parts' channels), run through the **good enough** list in [arrangement.md](references/arrangement.md), and stop. Write the **finishing notes**: what the sounds should become now that the notes exist (presets as starting points, the few parameters to bend, where humanising drift and noise belong), what is deliberately left to the human ear, and what a second version could try. Place every role in the mix by [mix.md](references/mix.md): the levels first, the lead set last so that it blends into the track rather than sits on top of it, then one `Mix` line per role (level, pan, depth plane, width, frequency slot), the mono check and, once the track is rendered, the lead check of every lead (measured where it reads loudest, a filter opening compensated).
 
 Done when: the sheet and the MIDI file exist, every role of the palette has its `Mix` line, the check output is quoted in the report, and the notes say plainly what was verified and what was not.
 
@@ -71,7 +71,7 @@ One Markdown file, written in the user's language from the title to the headings
 ## Variations                 the generations, one line each on what changed
 ## Arrangement                `Form: F<n> <name>` on the first line, the arrangement block, then each section's chord cycle, seams and unique events by bar
 ## Automation                 the automation blocks, one line each on what moves and why that curve
-## Finishing notes            sounds, a `Mix` line per role (level, pan, depth, width, slot), the mono check and the lead check, humanising, what is left to the ear, next version
+## Finishing notes            sounds, a `Mix` line per role (level, pan, depth, width, slot), the mono check and one lead check per lead, humanising, what is left to the ear, next version
 ## Check                      the output of sheet_tool.py check, verbatim
 ```
 
@@ -109,5 +109,5 @@ The report states what was produced, what was verified and how (quote the check)
 | [references/patterns.md](references/patterns.md) | when seeding a part from an archetype, or when a part sounds generic and needs a different model |
 | [references/forms.md](references/forms.md) | in phase 1, to choose the form by the rotation rule; in phase 4, for its bar map |
 | [references/arrangement.md](references/arrangement.md) | in phases 4 and 5: sections and density, the harmonic plan on bars, seams, unique events, endings, the good-enough list |
-| [references/mix.md](references/mix.md) | in phase 5: levels, pan, depth, width and frequency slot of each role with Faulk's devices, the mono check, the lead check, the `Mix` line |
+| [references/mix.md](references/mix.md) | in phase 5: levels, pan, depth, width and frequency slot of each role with Faulk's devices, the mono check, the lead check of each lead, the `Mix` line |
 | [references/styles/README.md](references/styles/README.md) | only when the brief names a style profile: how to apply it, and the list of profiles |
