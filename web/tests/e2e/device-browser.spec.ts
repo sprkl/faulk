@@ -84,6 +84,7 @@ for (const lang of ['en', 'fr'] as const) {
       'faulk.bloom',
       'faulk.contour',
       'faulk.ripple',
+      'faulk.sluice',
       'faulk.stack',
       'faulk.trim',
       'faulk.lattice',

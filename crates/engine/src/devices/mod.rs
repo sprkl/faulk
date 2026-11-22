@@ -29,6 +29,7 @@ pub mod reverb;
 pub mod ripple;
 pub mod scale;
 pub mod scatter;
+pub mod sluice;
 pub mod stack;
 pub mod swing;
 pub mod time_change;
@@ -68,6 +69,7 @@ pub const REGISTRY: &[Builtin] = &[
     contour::BUILTIN,
     ripple::BUILTIN,
     swing::BUILTIN,
+    sluice::BUILTIN,
 ];
 
 /// The registry's line of `kind`.

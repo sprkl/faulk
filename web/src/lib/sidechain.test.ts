@@ -92,8 +92,8 @@ describe('the detection source of a device (#952)', () => {
     expect(sourceUnheard(project, [], 'gone')).toBe(false)
   })
 
-  it('is offered for the Compressor only, and its words exist in both languages', () => {
-    expect(DEVICES.filter((d) => d.sidechain).map((d) => d.kind)).toEqual(['faulk.compressor'])
+  it('is offered for the Compressor and Sluice only, and its words exist in both languages', () => {
+    expect(DEVICES.filter((d) => d.sidechain).map((d) => d.kind)).toEqual(['faulk.compressor', 'faulk.sluice'])
     for (const key of [
       'devices.sidechain',
       'devices.sidechainOwn',

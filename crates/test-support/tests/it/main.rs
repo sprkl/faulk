@@ -42,6 +42,7 @@ mod ripple;
 mod scatter;
 mod scenes;
 mod sidechain;
+mod sluice;
 mod stack;
 mod swing;
 mod trim;
