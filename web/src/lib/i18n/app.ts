@@ -30,6 +30,7 @@ import { stack } from './stack'
 import { lattice } from './lattice'
 import { scatter } from './scatter'
 import { swing } from './swing'
+import { cascade } from './cascade'
 import { reverb } from './reverb'
 import { keys } from './keys'
 import { layout } from './layout'
@@ -79,6 +80,7 @@ export const features = {
   lattice,
   scatter,
   swing,
+  cascade,
   compressor,
   ceiling,
   trim,

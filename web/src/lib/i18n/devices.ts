@@ -169,6 +169,23 @@ export const devices = defineFeature(
     'swing.humanize_velocity.hint': "Random change of every note's velocity, up or down, from 0 (none) to 20 steps of 127: a repeatable draw, set by the seed.",
     'swing.seed.hint':
       'Seed of the humanize draws, from 0 to 1000: a note draws from the seed, its position in the song and its pitch, so the same seed gives the same notes at the same place on every play, from any start; another seed, another draw.',
+    'cascade.order.hint':
+      'How the held notes are walked: up, down, up then down, down then up, in the order they were played, at random (a repeatable draw, set by the seed) or all together as a chord at each step.',
+    'cascade.rate.hint':
+      'The note value of a step, from a whole note to a sixty-fourth note, on the grid of the transport. Combine it with the feel for dotted and triplet steps.',
+    'cascade.feel.hint': 'Whether a step is of its plain note value, dotted (one and a half times longer) or a triplet (two thirds as long).',
+    'cascade.octaves.hint':
+      'How many octaves the held notes are spread over, from 1 (as played) to 4: the pattern climbs through the notes and the same notes an octave higher.',
+    'cascade.repeats.hint': 'How many times each note is played in a row before the next one, from 1 to 4.',
+    'cascade.gate.hint': 'How long each note lasts, as a share of the step, from 1 % (a click) to 200 % (two steps, the notes overlap).',
+    'cascade.velocity_source.hint': 'Whether the notes keep the velocity they were played with, or all play at the fixed velocity below.',
+    'cascade.velocity.hint': 'The velocity of every note when the velocity source is fixed, from 1 to 127.',
+    'cascade.accent.hint': 'Extra velocity of the first step of each pass of the pattern, from 0 (none) to 60 steps of 127.',
+    'cascade.latch.hint': 'Whether the pattern goes on after the keys are released, until the next chord is played.',
+    'cascade.restart.hint':
+      'Where the pattern starts: over from its first note at each new chord, or free, a note of the pattern for each step of the grid, whenever the notes are played.',
+    'cascade.seed.hint':
+      'Seed of the random order, from 0 to 1000: a step draws from the seed and its position in the song, so the same seed gives the same notes at the same place on every play, from any start; another seed, another draw.',
     'filter.drive.hint': 'Soft saturation before the filter, from 0 (none) to 1: louder and rounder, so a strong resonance bites instead of whistling.',
     'filter.lfo_shape.hint': 'Shape of the LFO that moves the cutoff: sine, triangle, rising saw, falling saw, square, or random (a new value at each cycle).',
     'filter.lfo_sync.hint': 'Whether the LFO runs at its own rate in hertz (free) or follows the tempo (synced), each cycle on the same beat of every bar.',
@@ -458,6 +475,23 @@ export const devices = defineFeature(
       'Variation aléatoire de la vélocité de chaque note, vers le haut ou le bas, de 0 (aucune) à 20 sur 127 : un tirage reproductible, fixé par la graine.',
     'swing.seed.hint':
       'Graine des tirages d’humanisation, de 0 à 1000 : une note tire selon la graine, sa position dans le morceau et sa hauteur ; la même graine donne donc les mêmes notes à la même place à chaque lecture, quel que soit le point de départ ; une autre graine, un autre tirage.',
+    'cascade.order.hint':
+      'Comment les notes tenues sont parcourues : en montant, en descendant, en montant puis en descendant, en descendant puis en montant, dans l’ordre où elles ont été jouées, au hasard (un tirage reproductible, fixé par la graine) ou toutes ensemble en accord à chaque pas.',
+    'cascade.rate.hint':
+      'La valeur de note d’un pas, de la ronde à la soixante-quatrième de ronde, sur la grille du transport. Combinez-la avec l’aspect pour des pas pointés ou en triolet.',
+    'cascade.feel.hint': 'Si un pas a sa valeur de note simple, pointée (une fois et demie plus longue) ou en triolet (aux deux tiers de sa longueur).',
+    'cascade.octaves.hint':
+      'Sur combien d’octaves les notes tenues sont étalées, de 1 (telles que jouées) à 4 : le motif parcourt les notes puis les mêmes notes une octave plus haut.',
+    'cascade.repeats.hint': 'Combien de fois chaque note est jouée d’affilée avant la suivante, de 1 à 4.',
+    'cascade.gate.hint': 'La durée de chaque note, en part du pas, de 1 % (un claquement) à 200 % (deux pas, les notes se chevauchent).',
+    'cascade.velocity_source.hint': 'Si les notes gardent la vélocité avec laquelle elles ont été jouées, ou jouent toutes à la vélocité fixe ci-dessous.',
+    'cascade.velocity.hint': 'La vélocité de chaque note quand la source de vélocité est fixe, de 1 à 127.',
+    'cascade.accent.hint': 'Vélocité ajoutée au premier pas de chaque passage du motif, de 0 (aucune) à 60 sur 127.',
+    'cascade.latch.hint': 'Si le motif continue après le relâchement des touches, jusqu’au prochain accord joué.',
+    'cascade.restart.hint':
+      'D’où part le motif : de sa première note à chaque nouvel accord, ou libre, une note du motif pour chaque pas de la grille, quel que soit le moment où les notes sont jouées.',
+    'cascade.seed.hint':
+      'Graine de l’ordre aléatoire, de 0 à 1000 : un pas tire selon la graine et sa position dans le morceau ; la même graine donne donc les mêmes notes à la même place à chaque lecture, quel que soit le point de départ ; une autre graine, un autre tirage.',
     'filter.drive.hint':
       'Saturation douce avant le filtre, de 0 (aucune) à 1 : plus fort et plus rond, pour qu’une résonance poussée morde au lieu de siffler.',
     'filter.lfo_shape.hint':

@@ -7,6 +7,7 @@ mod audio_replay;
 mod big_project;
 mod bloom;
 mod bloom_vibrato;
+mod cascade;
 mod ceiling;
 mod clip_edit_playback;
 mod compiler;
