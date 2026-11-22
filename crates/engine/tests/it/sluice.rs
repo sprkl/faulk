@@ -453,6 +453,82 @@ fn the_inverted_gate_turns_the_sound_down_above_the_threshold() {
     assert!(passes(seen[10].1) && !passes(seen[300].1) && passes(seen[700].1));
 }
 
+/// Inverted, `attack` is the time to turn the sound down and `release` the time to let it back.
+#[test]
+fn inverted_the_attack_turns_the_sound_down_and_the_release_lets_it_back() {
+    let depth = 30.0;
+    let len = 48_000 * 2;
+    let mut key = vec![0.0; len];
+    for k in key.iter_mut().take(72_000).skip(12_000) {
+        *k = amp(-10.0);
+    }
+    let gain = gain_of(
+        &key,
+        &[
+            (INVERT, 1.0),
+            (DEPTH, depth),
+            (ATTACK, 0.01),
+            (RELEASE, 0.03),
+            (HOLD, 0.0),
+        ],
+        BLOCK,
+    );
+    let down = ramp_frames(&gain, 10_000, false, depth);
+    assert!(
+        down.abs_diff((0.01 * SR) as usize) <= BLOCK,
+        "{down} frames down"
+    );
+    let back = ramp_frames(&gain, 72_000, true, depth);
+    assert!(
+        back.abs_diff((0.03 * SR) as usize) <= BLOCK,
+        "{back} frames back"
+    );
+}
+
+/// A garbage key (NaN, infinities, huge values) against a clean input, and the reverse: the
+/// output stays finite, free of denormals and never above the delayed input.
+#[test]
+fn a_garbage_key_or_a_garbage_input_leaves_the_output_bounded() {
+    let mut garbage = noise(4_000, 21);
+    for (i, v) in [
+        f32::NAN,
+        f32::INFINITY,
+        f32::NEG_INFINITY,
+        1e30,
+        -1e30,
+        1e-40,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        garbage[100 + i * 7] = v;
+    }
+    let clean = sine(4_000, 300.0, 0.5);
+    for params in [
+        vec![],
+        vec![(HPF, 400.0), (LPF, 3_000.0)],
+        vec![(INVERT, 1.0)],
+    ] {
+        for (input, key) in [(&clean, &garbage), (&garbage, &clean)] {
+            let mut g = with(&params);
+            let out = keyed(&mut g, input, key, 97);
+            for (n, s) in out.iter().enumerate() {
+                assert!(s.is_finite() && (*s == 0.0 || s.abs() >= f32::MIN_POSITIVE));
+                let x = input[n];
+                let x = if x.is_finite() {
+                    x.clamp(-1e6, 1e6)
+                } else {
+                    0.0
+                };
+                assert!(
+                    s.abs() <= x.abs() * (1.0 + 1e-6) + 1e-30,
+                    "{s} over {x} at {n}"
+                );
+            }
+        }
+    }
+}
+
 /// The detection filters: a 50 Hz key does not open a gate that listens above 1 kHz, a 10 kHz
 /// one does not open a gate that listens under 500 Hz; the filters at their off ends change
 /// nothing.

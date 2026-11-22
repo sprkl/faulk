@@ -29,7 +29,8 @@
 //! 5. The **reduction** `r`, in decibels, from 0 (the signal passes) to the `depth`: it moves
 //!    linearly in decibels towards its target, at `depth / time` per second, so a move across
 //!    the whole depth lasts exactly `attack` (the trigger fired) or `release` (the trigger let
-//!    go). In the normal mode a fired trigger opens the gate (target 0) and an unfired one
+//!    go; inverted, `attack` is the time to turn the sound down and `release` the time to let
+//!    it back). In the normal mode a fired trigger opens the gate (target 0) and an unfired one
 //!    closes it (target `depth`); in the inverted mode (the erase) it is the other way round.
 //!    A depth change by the user follows the 20 ms ramp, and `r` never stays above it. At the
 //!    largest depth ([`DEPTH_MAX_DB`]) a closed gate is silent: the gain is exactly 0.
@@ -184,7 +185,7 @@ pub const DESCRIPTOR: DeviceDescriptor = DeviceDescriptor {
         ParamDescriptor {
             id: ParamId(ATTACK),
             key: "attack",
-            description: "Time the gate takes to open fully once the level reaches the opening threshold, from 0.01 ms to 100 ms: short keeps the first hit, long softens it.",
+            description: "Time the gate takes to open fully once the level reaches the opening threshold (inverted: to turn the sound down fully), from 0.01 ms to 100 ms: short keeps the first hit, long softens it.",
             unit: Unit::Seconds,
             min: 0.00001,
             max: 0.1,
@@ -210,7 +211,7 @@ pub const DESCRIPTOR: DeviceDescriptor = DeviceDescriptor {
         ParamDescriptor {
             id: ParamId(RELEASE),
             key: "release",
-            description: "Time the gate takes to close fully once the hold is over, from 1 ms to 5 s: short cuts the tail, long lets it ring out.",
+            description: "Time the gate takes to close fully once the hold is over (inverted: to let the sound fully back), from 1 ms to 5 s: short cuts the tail, long lets it ring out.",
             unit: Unit::Seconds,
             min: 0.001,
             max: 5.0,

@@ -221,10 +221,11 @@ export const devices = defineFeature(
       'Level, in decibels, under which the open gate starts to close, from -80 to 0 dB. Between it and the opening threshold the gate stays as it is, so a wobbling level does not make it flutter. Above the opening threshold it counts as equal.',
     'sluice.depth.hint': 'How far the closed gate turns the sound down, from 0 dB (not at all) to 80 dB, the largest, where it is silent.',
     'sluice.attack.hint':
-      'Time the gate takes to open fully once the level reaches the opening threshold, from 0.01 ms to 100 ms: short keeps the first hit, long softens it.',
+      'Time the gate takes to open fully once the level reaches the opening threshold (inverted: to turn the sound down fully), from 0.01 ms to 100 ms: short keeps the first hit, long softens it.',
     'sluice.hold.hint':
       'Time the gate stays open after the level falls under the closing threshold, from 0 to 2 s: it keeps a note or a hit from being cut between two peaks.',
-    'sluice.release.hint': 'Time the gate takes to close fully once the hold is over, from 1 ms to 5 s: short cuts the tail, long lets it ring out.',
+    'sluice.release.hint':
+      'Time the gate takes to close fully once the hold is over (inverted: to let the sound fully back), from 1 ms to 5 s: short cuts the tail, long lets it ring out.',
     'sluice.invert.hint':
       'When on, the gate works the other way round: it turns the sound down while what it listens to is above the threshold, and lets it through under it, to erase a loud part.',
     'sluice.hpf.hint':
@@ -531,11 +532,11 @@ export const devices = defineFeature(
       'Niveau, en décibels, sous lequel la porte ouverte commence à se fermer, de -80 à 0 dB. Entre lui et le seuil d’ouverture, la porte reste comme elle est : un niveau qui oscille ne la fait pas battre. Au-dessus du seuil d’ouverture, il compte pour égal.',
     'sluice.depth.hint': 'De combien la porte fermée baisse le son, de 0 dB (pas du tout) à 80 dB, le maximum, où il est coupé.',
     'sluice.attack.hint':
-      'Temps que la porte met à s’ouvrir complètement une fois le niveau au seuil d’ouverture, de 0,01 ms à 100 ms : court garde le début du coup, long l’adoucit.',
+      'Temps que la porte met à s’ouvrir complètement une fois le niveau au seuil d’ouverture (inversé : à baisser complètement le son), de 0,01 ms à 100 ms : court garde le début du coup, long l’adoucit.',
     'sluice.hold.hint':
       'Temps pendant lequel la porte reste ouverte après que le niveau est tombé sous le seuil de fermeture, de 0 à 2 s : elle ne coupe plus une note ou un coup entre deux crêtes.',
     'sluice.release.hint':
-      'Temps que la porte met à se fermer complètement une fois le maintien écoulé, de 1 ms à 5 s : court coupe la queue du son, long la laisse mourir.',
+      'Temps que la porte met à se fermer complètement une fois le maintien écoulé (inversé : à laisser revenir complètement le son), de 1 ms à 5 s : court coupe la queue du son, long la laisse mourir.',
     'sluice.invert.hint':
       'Activé, la porte travaille à l’envers : elle baisse le son tant que ce qu’elle écoute dépasse le seuil, et le laisse passer en dessous, pour effacer une partie forte.',
     'sluice.hpf.hint':

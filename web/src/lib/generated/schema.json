@@ -34224,7 +34224,7 @@
         },
         {
           "default": 0.001,
-          "description": "Time the gate takes to open fully once the level reaches the opening threshold, from 0.01 ms to 100 ms: short keeps the first hit, long softens it.",
+          "description": "Time the gate takes to open fully once the level reaches the opening threshold (inverted: to turn the sound down fully), from 0.01 ms to 100 ms: short keeps the first hit, long softens it.",
           "id": 3,
           "key": "attack",
           "max": 0.1,
@@ -34250,7 +34250,7 @@
         },
         {
           "default": 0.1,
-          "description": "Time the gate takes to close fully once the hold is over, from 1 ms to 5 s: short cuts the tail, long lets it ring out.",
+          "description": "Time the gate takes to close fully once the hold is over (inverted: to let the sound fully back), from 1 ms to 5 s: short cuts the tail, long lets it ring out.",
           "id": 5,
           "key": "release",
           "max": 5,
