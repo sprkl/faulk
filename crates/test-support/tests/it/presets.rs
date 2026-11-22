@@ -539,7 +539,7 @@ fn every_factory_preset_loads_while_playing_and_sounds_unlike_its_source_and_its
             );
             if reduced < MIN_CREST_REDUCTION_DB {
                 failures.push(format!(
-                    "{} barely compresses ({reduced:.2} dB of crest factor, under                      {MIN_CREST_REDUCTION_DB} dB)",
+                    "{} barely compresses ({reduced:.2} dB of crest factor, under {MIN_CREST_REDUCTION_DB} dB)",
                     f.id
                 ));
             }
