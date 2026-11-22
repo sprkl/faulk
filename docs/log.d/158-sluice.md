@@ -1,0 +1,2 @@
+2026-11-22
+* **Update** (#158): the registry gains the audio effect Sluice (`faulk.sluice`, kind 18, protocol 63, provisional: a noise gate with an opening and a closing threshold, an attack, a hold, a release, a depth up to silence, an inverted mode, a high-pass and a low-pass on what it listens to, a look-ahead of 0 to 5 ms that declares its latency, and an external detection source like the Compressor's). The gate reports its own open or closed state and its reduction in its device readout (parameter id 100, not a parameter), shown on its card.

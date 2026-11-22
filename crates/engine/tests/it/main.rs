@@ -60,6 +60,7 @@ mod ripple;
 mod sample_rate;
 mod scatter;
 mod sidechain;
+mod sluice;
 mod stack;
 mod stream_queue;
 mod swing;

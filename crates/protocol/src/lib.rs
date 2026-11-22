@@ -23,7 +23,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Version of this protocol. Bump it on any incompatible change.
-pub const PROTOCOL_VERSION: u32 = 62;
+pub const PROTOCOL_VERSION: u32 = 63;
 
 /// The largest engine stream the page sends in one binary frame, and the largest message the
 /// helper reads on a session: above every snapshot a project within the project's limits
@@ -44,6 +44,11 @@ pub const CONTROL_PUSHED_OUT: u16 = 4001;
 /// `page.timeout` although it ran.
 pub const AGENT_CONFIRM_MS: u32 = 45_000;
 
+// Version 63 (#158, 62 is Cascade's, #166): the registry
+// gains the audio effect `faulk.sluice` (device kind 18, a noise gate that takes an external detection
+// source like the Compressor). A helper of an earlier version refuses its `DeviceInsert` and its schema
+// bundle would not describe it. No message changes; the device reports its open or closed state and its
+// reduction in its readout (`Device::readout`, parameter id 100, which is not a parameter).
 // Version 62 (#166, provisional: the lead reassigns in merge order): the registry gains the MIDI effect
 // `faulk.cascade` (device kind 17: an arpeggiator that walks the held notes on the tempo's grid). A
 // helper of an earlier version would not build the device: a page and a helper of different versions

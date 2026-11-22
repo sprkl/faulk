@@ -2,19 +2,18 @@
   /**
    * The gain a Compressor takes off the signal, in dB: a bar that grows from the left as the gain
    * closes, and the number in mono (the bar alone is not the information). The engine reports the
-   * largest reduction of the strip's compressors, so a strip with several shows the deepest.
+   * largest reduction of the strip's compressors, so a strip with several shows the deepest. A gate (Sluice) shows its own
+   * reduction, on a scale of its depth.
    */
-  let { reductionDb, label, testid = 'gain-reduction' }: { reductionDb: number; label: string; testid?: string } = $props()
+  let { reductionDb, label, testid = 'gain-reduction', scaleDb = 24 }: { reductionDb: number; label: string; testid?: string; scaleDb?: number } = $props()
 
-  /** The bar's full scale, in dB. */
-  const SCALE_DB = 24
-  const share = $derived(Math.min(1, Math.max(0, reductionDb / SCALE_DB)))
+  const share = $derived(Math.min(1, Math.max(0, reductionDb / scaleDb)))
   const text = $derived(reductionDb < 0.05 ? '0.0' : `−${reductionDb.toFixed(1)}`)
 </script>
 
 <div class="gr" data-testid={testid}>
   <span class="name">{label}</span>
-  <div class="bar" role="meter" aria-label={label} aria-valuemin={0} aria-valuemax={SCALE_DB} aria-valuenow={Math.round(reductionDb)}>
+  <div class="bar" role="meter" aria-label={label} aria-valuemin={0} aria-valuemax={scaleDb} aria-valuenow={Math.round(reductionDb)}>
     <span class="fill" style:--f={share}></span>
   </div>
   <span class="value" data-testid="{testid}-value">{text} dB</span>
