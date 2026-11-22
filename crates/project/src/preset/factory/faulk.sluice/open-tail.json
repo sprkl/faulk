@@ -1,0 +1,19 @@
+{
+  "category": "Dynamics",
+  "device": "faulk.sluice",
+  "format": 1,
+  "name": "Open Tail",
+  "params": {
+    "attack": 0.008,
+    "close": -12.0,
+    "depth": 70.0,
+    "hold": 0.12,
+    "hpf": 500.0,
+    "invert": 0.0,
+    "lookahead": 0.0,
+    "lpf": 20000.0,
+    "release": 0.4,
+    "threshold": -8.5
+  },
+  "version": 1
+}

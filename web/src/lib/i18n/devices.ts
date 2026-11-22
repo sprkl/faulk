@@ -5,7 +5,7 @@
  * A device name is not here: it comes from the descriptor, one English name never translated.
  * Labels of the parameters and of their values are in `synth.ts`, `drums.ts`, `echo.ts`, `reverb.ts`, `filter.ts`, `compressor.ts`, `ceiling.ts`, `trim.ts`, `hiccup.ts` and `bloom.ts`;
  * Contour's labels and tooltips are both in `contour.ts`.
- * Labels of the parameters and of their values are in `synth.ts`, `drums.ts`, `echo.ts`, `reverb.ts`, `filter.ts`, `compressor.ts`, `ceiling.ts`, `trim.ts`, `hiccup.ts`, `bloom.ts` and `ripple.ts`.
+ * Labels of the parameters and of their values are in `synth.ts`, `drums.ts`, `echo.ts`, `reverb.ts`, `filter.ts`, `compressor.ts`, `ceiling.ts`, `sluice.ts`, `trim.ts`, `hiccup.ts`, `bloom.ts` and `ripple.ts`.
  */
 
 import { defineFeature } from './feature'
@@ -18,6 +18,8 @@ export const devices = defineFeature(
     'devices.noParams': 'No settings shown for this device.',
     'devices.bypass': 'Bypass {name}',
     'devices.gainReduction': 'Gain reduction',
+    'devices.gateOpen': 'Open',
+    'devices.gateClosed': 'Closed',
     'devices.sidechain': 'Detection source',
     'devices.sidechainOwn': 'This track',
     'devices.sidechainHint':
@@ -169,6 +171,23 @@ export const devices = defineFeature(
     'swing.humanize_velocity.hint': "Random change of every note's velocity, up or down, from 0 (none) to 20 steps of 127: a repeatable draw, set by the seed.",
     'swing.seed.hint':
       'Seed of the humanize draws, from 0 to 1000: a note draws from the seed, its position in the song and its pitch, so the same seed gives the same notes at the same place on every play, from any start; another seed, another draw.',
+    'cascade.order.hint':
+      'How the held notes are walked: up, down, up then down, down then up, in the order they were played, at random (a repeatable draw, set by the seed) or all together as a chord at each step.',
+    'cascade.rate.hint':
+      'The note value of a step, from a whole note to a sixty-fourth note, on the grid of the transport. Combine it with the feel for dotted and triplet steps.',
+    'cascade.feel.hint': 'Whether a step is of its plain note value, dotted (one and a half times longer) or a triplet (two thirds as long).',
+    'cascade.octaves.hint':
+      'How many octaves the held notes are spread over, from 1 (as played) to 4: the pattern climbs through the notes and the same notes an octave higher.',
+    'cascade.repeats.hint': 'How many times each note is played in a row before the next one, from 1 to 4.',
+    'cascade.gate.hint': 'How long each note lasts, as a share of the step, from 1 % (a click) to 200 % (two steps, the notes overlap).',
+    'cascade.velocity_source.hint': 'Whether the notes keep the velocity they were played with, or all play at the fixed velocity below.',
+    'cascade.velocity.hint': 'The velocity of every note when the velocity source is fixed, from 1 to 127.',
+    'cascade.accent.hint': 'Extra velocity of the first step of each pass of the pattern, from 0 (none) to 60 steps of 127.',
+    'cascade.latch.hint': 'Whether the pattern goes on after the keys are released, until the next chord is played.',
+    'cascade.restart.hint':
+      'Where the pattern starts: over from its first note at each new chord, or free, a note of the pattern for each step of the grid, whenever the notes are played.',
+    'cascade.seed.hint':
+      'Seed of the random order, from 0 to 1000: a step draws from the seed and its position in the song, so the same seed gives the same notes at the same place on every play, from any start; another seed, another draw.',
     'filter.drive.hint': 'Soft saturation before the filter, from 0 (none) to 1: louder and rounder, so a strong resonance bites instead of whistling.',
     'filter.lfo_shape.hint': 'Shape of the LFO that moves the cutoff: sine, triangle, rising saw, falling saw, square, or random (a new value at each cycle).',
     'filter.lfo_sync.hint': 'Whether the LFO runs at its own rate in hertz (free) or follows the tempo (synced), each cycle on the same beat of every bar.',
@@ -214,6 +233,24 @@ export const devices = defineFeature(
       'In manual release, time the limiter takes to let the sound back up after a peak, from 1 ms to 1 s: short is louder, long is smoother.',
     'ceiling.true_peak.hint':
       'When on, the limiter also catches the peaks between samples (4x oversampled detection), for a converter or an encoder. It adds 12 samples of delay and a look-ahead of at least 16 samples. A change fades out and back in.',
+    'sluice.threshold.hint': 'Level, in decibels, at which the gate opens, from -80 to 0 dB: the sound passes once what the gate listens to reaches it.',
+    'sluice.close.hint':
+      'Level, in decibels, under which the open gate starts to close, from -80 to 0 dB. Between it and the opening threshold the gate stays as it is, so a wobbling level does not make it flutter. Above the opening threshold it counts as equal.',
+    'sluice.depth.hint': 'How far the closed gate turns the sound down, from 0 dB (not at all) to 80 dB, the largest, where it is silent.',
+    'sluice.attack.hint':
+      'Time the gate takes to open fully once the level reaches the opening threshold (inverted: to turn the sound down fully), from 0.01 ms to 100 ms: short keeps the first hit, long softens it.',
+    'sluice.hold.hint':
+      'Time the gate stays open after the level falls under the closing threshold, from 0 to 2 s: it keeps a note or a hit from being cut between two peaks.',
+    'sluice.release.hint':
+      'Time the gate takes to close fully once the hold is over (inverted: to let the sound fully back), from 1 ms to 5 s: short cuts the tail, long lets it ring out.',
+    'sluice.invert.hint':
+      'When on, the gate works the other way round: it turns the sound down while what it listens to is above the threshold, and lets it through under it, to erase a loud part.',
+    'sluice.hpf.hint':
+      'Frequency under which the gate stops listening, from 20 to 2000 Hz (a 12 dB per octave high-pass on what it listens to, not on the sound): a rumble no longer holds it open. 20 Hz is off.',
+    'sluice.lpf.hint':
+      'Frequency above which the gate stops listening, from 500 to 20000 Hz (a 12 dB per octave low-pass on what it listens to, not on the sound): a hiss or a cymbal no longer opens it. 20000 Hz is off.',
+    'sluice.lookahead.hint':
+      'How far ahead the gate sees the sound, from 0 to 5 ms, so it is already open when a hit arrives. It delays the sound by that time; the other tracks are delayed to match, so everything stays in time. A change fades out and back in.',
     'trim.mode.hint': 'How the length is set: a time in seconds (free) or a note value that follows the project tempo (synced).',
     'trim.time.hint': 'Length of every note in free mode, in seconds, from 1 ms to 10 s.',
     'trim.division.hint': 'Length of every note in synced mode, as a note value of the project tempo, from a 64th note to 4 bars of the time signature.',
@@ -298,6 +335,8 @@ export const devices = defineFeature(
     'devices.noParams': 'Aucun réglage affiché pour ce device.',
     'devices.bypass': 'Contourner {name}',
     'devices.gainReduction': 'Réduction de gain',
+    'devices.gateOpen': 'Ouverte',
+    'devices.gateClosed': 'Fermée',
     'devices.sidechain': 'Source de la détection',
     'devices.sidechainOwn': 'Cette piste',
     'devices.sidechainHint':
@@ -458,6 +497,23 @@ export const devices = defineFeature(
       'Variation aléatoire de la vélocité de chaque note, vers le haut ou le bas, de 0 (aucune) à 20 sur 127 : un tirage reproductible, fixé par la graine.',
     'swing.seed.hint':
       'Graine des tirages d’humanisation, de 0 à 1000 : une note tire selon la graine, sa position dans le morceau et sa hauteur ; la même graine donne donc les mêmes notes à la même place à chaque lecture, quel que soit le point de départ ; une autre graine, un autre tirage.',
+    'cascade.order.hint':
+      'Comment les notes tenues sont parcourues : en montant, en descendant, en montant puis en descendant, en descendant puis en montant, dans l’ordre où elles ont été jouées, au hasard (un tirage reproductible, fixé par la graine) ou toutes ensemble en accord à chaque pas.',
+    'cascade.rate.hint':
+      'La valeur de note d’un pas, de la ronde à la soixante-quatrième de ronde, sur la grille du transport. Combinez-la avec le type pour des pas pointés ou en triolet.',
+    'cascade.feel.hint': 'Si un pas a sa valeur de note simple, pointée (une fois et demie plus longue) ou en triolet (aux deux tiers de sa longueur).',
+    'cascade.octaves.hint':
+      'Sur combien d’octaves les notes tenues sont étalées, de 1 (telles que jouées) à 4 : le motif parcourt les notes puis les mêmes notes une octave plus haut.',
+    'cascade.repeats.hint': 'Combien de fois chaque note est jouée d’affilée avant la suivante, de 1 à 4.',
+    'cascade.gate.hint': 'La durée de chaque note, en part du pas, de 1 % (un claquement) à 200 % (deux pas, les notes se chevauchent).',
+    'cascade.velocity_source.hint': 'Si les notes gardent la vélocité avec laquelle elles ont été jouées, ou jouent toutes à la vélocité fixe ci-dessous.',
+    'cascade.velocity.hint': 'La vélocité de chaque note quand la source de vélocité est fixe, de 1 à 127.',
+    'cascade.accent.hint': 'Vélocité ajoutée au premier pas de chaque passage du motif, de 0 (aucune) à 60 sur 127.',
+    'cascade.latch.hint': 'Si le motif continue après le relâchement des touches, jusqu’au prochain accord joué.',
+    'cascade.restart.hint':
+      'D’où part le motif : de sa première note à chaque nouvel accord, ou libre, une note du motif pour chaque pas de la grille, quel que soit le moment où les notes sont jouées.',
+    'cascade.seed.hint':
+      'Graine de l’ordre aléatoire, de 0 à 1000 : un pas tire selon la graine et sa position dans le morceau ; la même graine donne donc les mêmes notes à la même place à chaque lecture, quel que soit le point de départ ; une autre graine, un autre tirage.',
     'filter.drive.hint':
       'Saturation douce avant le filtre, de 0 (aucune) à 1 : plus fort et plus rond, pour qu’une résonance poussée morde au lieu de siffler.',
     'filter.lfo_shape.hint':
@@ -505,6 +561,24 @@ export const devices = defineFeature(
       'En relâchement manuel, temps que le limiteur met à relever le son après une crête, de 1 ms à 1 s : court sonne plus fort, long plus doux.',
     'ceiling.true_peak.hint':
       'Activée, le limiteur rattrape aussi les crêtes entre les échantillons (détection suréchantillonnée 4 fois), pour un convertisseur ou un encodeur. Ajoute 12 échantillons de retard et au moins 16 échantillons d’anticipation. Un changement se fait par un fondu de sortie puis d’entrée.',
+    'sluice.threshold.hint': 'Niveau, en décibels, auquel la porte s’ouvre, de -80 à 0 dB : le son passe dès que ce qu’elle écoute l’atteint.',
+    'sluice.close.hint':
+      'Niveau, en décibels, sous lequel la porte ouverte commence à se fermer, de -80 à 0 dB. Entre lui et le seuil d’ouverture, la porte reste comme elle est : un niveau qui oscille ne la fait pas battre. Au-dessus du seuil d’ouverture, il compte pour égal.',
+    'sluice.depth.hint': 'De combien la porte fermée baisse le son, de 0 dB (pas du tout) à 80 dB, le maximum, où il est coupé.',
+    'sluice.attack.hint':
+      'Temps que la porte met à s’ouvrir complètement une fois le niveau au seuil d’ouverture (inversé : à baisser complètement le son), de 0,01 ms à 100 ms : court garde le début du coup, long l’adoucit.',
+    'sluice.hold.hint':
+      'Temps pendant lequel la porte reste ouverte après que le niveau est tombé sous le seuil de fermeture, de 0 à 2 s : elle ne coupe plus une note ou un coup entre deux crêtes.',
+    'sluice.release.hint':
+      'Temps que la porte met à se fermer complètement une fois le maintien écoulé (inversé : à laisser revenir complètement le son), de 1 ms à 5 s : court coupe la queue du son, long la laisse mourir.',
+    'sluice.invert.hint':
+      'Activé, la porte travaille à l’envers : elle baisse le son tant que ce qu’elle écoute dépasse le seuil, et le laisse passer en dessous, pour effacer une partie forte.',
+    'sluice.hpf.hint':
+      'Fréquence sous laquelle la porte n’écoute plus, de 20 à 2000 Hz (un passe-haut de 12 dB par octave sur ce qu’elle écoute, pas sur le son) : un grondement ne la tient plus ouverte. 20 Hz : coupé.',
+    'sluice.lpf.hint':
+      'Fréquence au-dessus de laquelle la porte n’écoute plus, de 500 à 20000 Hz (un passe-bas de 12 dB par octave sur ce qu’elle écoute, pas sur le son) : un souffle ou une cymbale ne l’ouvre plus. 20000 Hz : coupé.',
+    'sluice.lookahead.hint':
+      'Avance avec laquelle la porte voit venir le son, de 0 à 5 ms : elle est déjà ouverte quand un coup arrive. Le son est retardé d’autant ; les autres pistes le sont aussi, tout reste donc en place. Un changement se fait par un fondu de sortie puis d’entrée.',
     'trim.mode.hint': 'Comment la longueur est réglée : une durée en secondes (libre) ou une valeur de note qui suit le tempo du projet (au tempo).',
     'trim.time.hint': 'Longueur de chaque note en mode libre, en secondes, de 1 ms à 10 s.',
     'trim.division.hint':

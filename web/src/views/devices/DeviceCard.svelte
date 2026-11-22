@@ -11,6 +11,7 @@
   import ContourCurve from './ContourCurve.svelte'
   import { setDeviceParam } from '../../lib/device-commands'
   import { setSidechain, sourceOptions, sourceUnheard } from '../../lib/sidechain'
+  import { gateState, SLUICE_STATE_READOUT } from '../../lib/sluice'
   import { createLane, createMasterLane } from '../../lib/automation-commands'
   import { cardGestures, controlGroups, curveRate } from '../../lib/contour/card'
   import { cardActions, type ChainEntry } from '../../lib/project/chain'
@@ -32,7 +33,12 @@
   // The Compressor and Ceiling show the gain they take off (the engine reports the largest reduction of the strip's enabled devices).
   const reduces = $derived(entry.kind === 'faulk.compressor' || entry.kind === 'faulk.ceiling')
   const reduction = $derived(bypassed ? 0 : meters.snap(master ? MASTER_METER : (track ?? MASTER_METER)).reductionDb)
-  // A device that can listen to another track (#952, the Compressor) chooses it here, on a track's chain only: the master's listens to the mix.
+  // Sluice (#158) shows its own state and reduction: the gate reports them in its readout, not through the strip's largest reduction.
+  const gate = $derived(entry.kind === 'faulk.sluice')
+  const gateNow = $derived(bypassed ? null : gateState(meters.readout(entry.id, SLUICE_STATE_READOUT)))
+  // The meter's scale is the gate's depth (at least a few decibels), so a 12 dB gate fills its bar.
+  const gateScale = $derived(Math.max(6, entry.device.params.depth ?? descriptor?.params.find((p) => p.key === 'depth')?.default ?? 24))
+  // A device that can listen to another track (#952, the Compressor, Sluice) chooses it here, on a track's chain only: the master's listens to the mix.
   const keyed = $derived(!!descriptor?.sidechain && !master && !!track)
   const sources = $derived(keyed && track && project.view ? sourceOptions(project.view.project, track, t) : [])
   const source = $derived(entry.device.sidechain ?? '')
@@ -200,6 +206,14 @@
   {/if}
   {#if reduces}
     <ReductionMeter reductionDb={reduction} label={t('devices.gainReduction')} />
+  {/if}
+  {#if gate}
+    <div class="gate">
+      <span class="state" data-testid="gate-state" data-state={gateNow ? (gateNow.open ? 'open' : 'closed') : 'none'}>
+        {gateNow ? t(gateNow.open ? 'devices.gateOpen' : 'devices.gateClosed') : '–'}
+      </span>
+      <ReductionMeter reductionDb={gateNow?.reductionDb ?? 0} label={t('devices.gainReduction')} scaleDb={gateScale} />
+    </div>
   {/if}
   {#if keyed}
     <label class="sidechain" title={t('devices.sidechainHint')}>
@@ -398,6 +412,30 @@
   .muted {
     margin: 0;
     color: var(--fk-text-muted);
+  }
+  .gate {
+    display: flex;
+    align-items: center;
+    gap: var(--fk-space-3);
+  }
+  .gate :global(.gr) {
+    flex: 1;
+  }
+  .state {
+    min-width: 7ch;
+    padding: 0 var(--fk-space-2);
+    border: 1px solid var(--fk-line);
+    border-radius: var(--fk-radius-pill);
+    color: var(--fk-text-muted);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-align: center;
+    text-transform: uppercase;
+  }
+  .state[data-state='open'] {
+    color: var(--fk-text);
+    border-color: var(--fk-text);
   }
   .sidechain {
     display: flex;

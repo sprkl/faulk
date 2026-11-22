@@ -34174,6 +34174,353 @@
       "role": "midi_effect",
       "sidechain": false,
       "version": 1
+    },
+    {
+      "kind": "faulk.cascade",
+      "kind_id": 17,
+      "memory_bytes": 1313272,
+      "midi_output": {
+        "per_block": 3201,
+        "per_input": 1
+      },
+      "name": "Cascade",
+      "named_keys": [],
+      "params": [
+        {
+          "default": 0,
+          "description": "How the held notes are walked: up, down, up then down, down then up, in the order they were played, at random (a repeatable draw, set by the seed) or all together as a chord at each step.",
+          "id": 0,
+          "key": "order",
+          "max": 6,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "up",
+            "down",
+            "up_down",
+            "down_up",
+            "played",
+            "random",
+            "chord"
+          ]
+        },
+        {
+          "default": 4,
+          "description": "The note value of a step, from a whole note to a sixty-fourth note, on the grid of the transport. Combine it with the feel for dotted and triplet steps.",
+          "id": 1,
+          "key": "rate",
+          "max": 6,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "whole",
+            "half",
+            "quarter",
+            "eighth",
+            "sixteenth",
+            "thirty_second",
+            "sixty_fourth"
+          ]
+        },
+        {
+          "default": 0,
+          "description": "Whether a step is of its plain note value, dotted (one and a half times longer) or a triplet (two thirds as long).",
+          "id": 2,
+          "key": "feel",
+          "max": 2,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "straight",
+            "dotted",
+            "triplet"
+          ]
+        },
+        {
+          "default": 1,
+          "description": "How many octaves the held notes are spread over, from 1 (as played) to 4: the pattern climbs through the notes and the same notes an octave higher.",
+          "id": 3,
+          "key": "octaves",
+          "max": 4,
+          "min": 1,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": []
+        },
+        {
+          "default": 1,
+          "description": "How many times each note is played in a row before the next one, from 1 to 4.",
+          "id": 4,
+          "key": "repeats",
+          "max": 4,
+          "min": 1,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": []
+        },
+        {
+          "default": 80,
+          "description": "How long each note lasts, as a share of the step, from 1 % (a click) to 200 % (two steps, the notes overlap).",
+          "id": 5,
+          "key": "gate",
+          "max": 200,
+          "min": 1,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "percent",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "Whether the notes keep the velocity they were played with, or all play at the fixed velocity below.",
+          "id": 6,
+          "key": "velocity_source",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "input",
+            "fixed"
+          ]
+        },
+        {
+          "default": 100,
+          "description": "The velocity of every note when the velocity source is fixed, from 1 to 127.",
+          "id": 7,
+          "key": "velocity",
+          "max": 127,
+          "min": 1,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "Extra velocity of the first step of each pass of the pattern, from 0 (none) to 60 steps of 127.",
+          "id": 8,
+          "key": "accent",
+          "max": 60,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "Whether the pattern goes on after the keys are released, until the next chord is played.",
+          "id": 9,
+          "key": "latch",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "off",
+            "on"
+          ]
+        },
+        {
+          "default": 0,
+          "description": "Where the pattern starts: over from its first note at each new chord, or free, a note of the pattern for each step of the grid, whenever the notes are played.",
+          "id": 10,
+          "key": "restart",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "new_chord",
+            "free"
+          ]
+        },
+        {
+          "default": 0,
+          "description": "Seed of the random order, from 0 to 1000: a step draws from the seed and its position in the song, so the same seed gives the same notes at the same place on every play, from any start; another seed, another draw.",
+          "id": 11,
+          "key": "seed",
+          "max": 1000,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": []
+        }
+      ],
+      "role": "midi_effect",
+      "sidechain": false,
+      "version": 1
+    },
+    {
+      "kind": "faulk.sluice",
+      "kind_id": 18,
+      "memory_bytes": 49680,
+      "midi_output": null,
+      "name": "Sluice",
+      "named_keys": [],
+      "params": [
+        {
+          "default": -30,
+          "description": "Level, in decibels, at which the gate opens, from -80 to 0 dB: the sound passes once what the gate listens to reaches it.",
+          "id": 0,
+          "key": "threshold",
+          "max": 0,
+          "min": -80,
+          "scale": "linear",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "decibels",
+          "values": []
+        },
+        {
+          "default": -36,
+          "description": "Level, in decibels, under which the open gate starts to close, from -80 to 0 dB. Between it and the opening threshold the gate stays as it is, so a wobbling level does not make it flutter. Above the opening threshold it counts as equal.",
+          "id": 1,
+          "key": "close",
+          "max": 0,
+          "min": -80,
+          "scale": "linear",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "decibels",
+          "values": []
+        },
+        {
+          "default": 80,
+          "description": "How far the closed gate turns the sound down, from 0 dB (not at all) to 80 dB, the largest, where it is silent.",
+          "id": 2,
+          "key": "depth",
+          "max": 80,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "decibels",
+          "values": []
+        },
+        {
+          "default": 0.001,
+          "description": "Time the gate takes to open fully once the level reaches the opening threshold (inverted: to turn the sound down fully), from 0.01 ms to 100 ms: short keeps the first hit, long softens it.",
+          "id": 3,
+          "key": "attack",
+          "max": 0.1,
+          "min": 0.00001,
+          "scale": "log",
+          "smoothing_seconds": 0,
+          "step": 0,
+          "unit": "seconds",
+          "values": []
+        },
+        {
+          "default": 0.05,
+          "description": "Time the gate stays open after the level falls under the closing threshold, from 0 to 2 s: it keeps a note or a hit from being cut between two peaks.",
+          "id": 4,
+          "key": "hold",
+          "max": 2,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 0,
+          "unit": "seconds",
+          "values": []
+        },
+        {
+          "default": 0.1,
+          "description": "Time the gate takes to close fully once the hold is over (inverted: to let the sound fully back), from 1 ms to 5 s: short cuts the tail, long lets it ring out.",
+          "id": 5,
+          "key": "release",
+          "max": 5,
+          "min": 0.001,
+          "scale": "log",
+          "smoothing_seconds": 0,
+          "step": 0,
+          "unit": "seconds",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "When on, the gate works the other way round: it turns the sound down while what it listens to is above the threshold, and lets it through under it, to erase a loud part.",
+          "id": 6,
+          "key": "invert",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "off",
+            "on"
+          ]
+        },
+        {
+          "default": 20,
+          "description": "Frequency under which the gate stops listening, from 20 to 2000 Hz (a 12 dB per octave high-pass on what it listens to, not on the sound): a rumble no longer holds it open. 20 Hz is off.",
+          "id": 7,
+          "key": "hpf",
+          "max": 2000,
+          "min": 20,
+          "scale": "log",
+          "smoothing_seconds": 0,
+          "step": 0,
+          "unit": "hertz",
+          "values": []
+        },
+        {
+          "default": 20000,
+          "description": "Frequency above which the gate stops listening, from 500 to 20000 Hz (a 12 dB per octave low-pass on what it listens to, not on the sound): a hiss or a cymbal no longer opens it. 20000 Hz is off.",
+          "id": 8,
+          "key": "lpf",
+          "max": 20000,
+          "min": 500,
+          "scale": "log",
+          "smoothing_seconds": 0,
+          "step": 0,
+          "unit": "hertz",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "How far ahead the gate sees the sound, from 0 to 5 ms, so it is already open when a hit arrives. It delays the sound by that time; the other tracks are delayed to match, so everything stays in time. A change fades out and back in.",
+          "id": 9,
+          "key": "lookahead",
+          "max": 0.005,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 0,
+          "unit": "seconds",
+          "values": []
+        }
+      ],
+      "role": "effect",
+      "sidechain": true,
+      "version": 1
     }
   ],
   "error_codes": {
@@ -43754,7 +44101,7 @@
       "title": "SnapshotReport"
     }
   },
-  "protocol_version": 61,
+  "protocol_version": 63,
   "scale_intervals": [
     {
       "intervals": [

@@ -98,6 +98,14 @@ const FILES: &[(&str, &str)] = &[
         include_str!("factory/faulk.ceiling/loud-master.json"),
     ),
     (
+        "faulk.sluice/tight-drums",
+        include_str!("factory/faulk.sluice/tight-drums.json"),
+    ),
+    (
+        "faulk.sluice/open-tail",
+        include_str!("factory/faulk.sluice/open-tail.json"),
+    ),
+    (
         "faulk.stack/major-triad",
         include_str!("factory/faulk.stack/major-triad.json"),
     ),
@@ -200,6 +208,18 @@ const FILES: &[(&str, &str)] = &[
     (
         "faulk.swing/loose-hats",
         include_str!("factory/faulk.swing/loose-hats.json"),
+    ),
+    (
+        "faulk.cascade/climbing-sixteenths",
+        include_str!("factory/faulk.cascade/climbing-sixteenths.json"),
+    ),
+    (
+        "faulk.cascade/triplet-rain",
+        include_str!("factory/faulk.cascade/triplet-rain.json"),
+    ),
+    (
+        "faulk.cascade/scattered-sparks",
+        include_str!("factory/faulk.cascade/scattered-sparks.json"),
     ),
 ];
 

@@ -1,0 +1,19 @@
+{
+  "category": "Dynamics",
+  "device": "faulk.sluice",
+  "format": 1,
+  "name": "Tight Drums",
+  "params": {
+    "attack": 0.0005,
+    "close": -14.0,
+    "depth": 80.0,
+    "hold": 0.02,
+    "hpf": 300.0,
+    "invert": 0.0,
+    "lookahead": 0.002,
+    "lpf": 20000.0,
+    "release": 0.06,
+    "threshold": -8.0
+  },
+  "version": 1
+}

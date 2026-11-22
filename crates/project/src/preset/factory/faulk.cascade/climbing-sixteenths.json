@@ -1,0 +1,21 @@
+{
+  "category": "Pattern",
+  "device": "faulk.cascade",
+  "format": 1,
+  "name": "Climbing Sixteenths",
+  "params": {
+    "accent": 20.0,
+    "feel": 0.0,
+    "gate": 70.0,
+    "latch": 0.0,
+    "octaves": 2.0,
+    "order": 0.0,
+    "rate": 4.0,
+    "repeats": 1.0,
+    "restart": 0.0,
+    "seed": 0.0,
+    "velocity": 100.0,
+    "velocity_source": 0.0
+  },
+  "version": 1
+}
