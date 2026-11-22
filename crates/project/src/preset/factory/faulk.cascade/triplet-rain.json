@@ -1,0 +1,21 @@
+{
+  "category": "Pattern",
+  "device": "faulk.cascade",
+  "format": 1,
+  "name": "Triplet Rain",
+  "params": {
+    "accent": 0.0,
+    "feel": 2.0,
+    "gate": 120.0,
+    "latch": 1.0,
+    "octaves": 3.0,
+    "order": 2.0,
+    "rate": 3.0,
+    "repeats": 1.0,
+    "restart": 0.0,
+    "seed": 0.0,
+    "velocity": 90.0,
+    "velocity_source": 1.0
+  },
+  "version": 1
+}

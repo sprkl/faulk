@@ -44,11 +44,16 @@ pub const CONTROL_PUSHED_OUT: u16 = 4001;
 /// `page.timeout` although it ran.
 pub const AGENT_CONFIRM_MS: u32 = 45_000;
 
-// Version 63 (#158, provisional: 62 is Cascade's, #166; the lead reassigns in merge order): the registry
+// Version 63 (#158, 62 is Cascade's, #166): the registry
 // gains the audio effect `faulk.sluice` (device kind 18, a noise gate that takes an external detection
 // source like the Compressor). A helper of an earlier version refuses its `DeviceInsert` and its schema
 // bundle would not describe it. No message changes; the device reports its open or closed state and its
 // reduction in its readout (`Device::readout`, parameter id 100, which is not a parameter).
+// Version 62 (#166, provisional: the lead reassigns in merge order): the registry gains the MIDI effect
+// `faulk.cascade` (device kind 17: an arpeggiator that walks the held notes on the tempo's grid). A
+// helper of an earlier version would not build the device: a page and a helper of different versions
+// refuse each other.
+
 // Version 61 (#953, provisional: the lead reassigns in merge order):
 // the project's key changes. The engine takes `ControlMsg::SetKeyChanges` (tag 5, the whole list of
 // (tick, pitch classes)) and Stack, Lattice and Scatter read the key in force at the played position;
