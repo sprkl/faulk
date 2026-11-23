@@ -1,0 +1,26 @@
+[package]
+name = "headless"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Faulk without a browser (spike #820): a CLI and an MCP server that own a project folder and run the page's project core natively."
+
+[[bin]]
+name = "faulk"
+path = "src/main.rs"
+
+[dependencies]
+engine = { path = "../engine" }
+commands = { path = "../commands" }
+project = { path = "../project" }
+# The page's project core (`Core`), linked natively: the same command runs, history, agent
+# turns, id seeding and dirty-file save as the page (#820 spike; #823 extracts it properly).
+project-wasm = { path = "../project-wasm" }
+serde_json = "1.0.154"
+getrandom = "0.4.3"
+rmcp = { version = "3.8.0", default-features = false, features = ["server", "transport-io"] }
+tokio = { version = "1.53.2", features = ["rt", "macros", "io-std", "sync"] }
+
+[dev-dependencies]
+test-support = { path = "../test-support" }
